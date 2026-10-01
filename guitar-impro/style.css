@@ -65,6 +65,9 @@ select{font:inherit;background:var(--card);color:var(--text);border:1px solid va
 input[type=range]{accent-color:var(--acc);height:32px}
 .toggle{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--line);cursor:pointer}
 .toggle:last-child{border-bottom:0}
+.comprow{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:6px 0 10px;border-bottom:1px solid var(--line)}
+.comprow:last-child{border-bottom:0}
+.comprow .tempo{min-width:200px}
 .toggle input{width:22px;height:22px;accent-color:var(--acc)}
 
 /* диаграммы аккордов */

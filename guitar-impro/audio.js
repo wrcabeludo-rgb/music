@@ -2,7 +2,8 @@
 // метроном, барабаны, бас, подложки и распознавание высоты с микрофона.
 (function () {
   'use strict';
-  let ctx = null, out, gtrBus, smpBus, bassBus, drumBus, clickBus;
+  let ctx = null, out, gtrBus, smpBus, compSmp, compKs, bassBus, drumBus, clickBus;
+  let compVol = 1;
   const bufCache = new Map();
   let noiseBuf = null;
   const live = new Set(); // запущенные источники — чтобы остановить всё разом
@@ -26,6 +27,9 @@
       const irLen = Math.floor(ctx.sampleRate * 1.4), ir = ctx.createBuffer(2, irLen, ctx.sampleRate);
       for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < irLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 3); }
       rev.buffer = ir; wet.gain.value = 0.22; smpBus.connect(rev); rev.connect(wet); wet.connect(out);
+      // аккомпанемент — через свои регуляторы громкости
+      compSmp = ctx.createGain(); compSmp.gain.value = compVol; compSmp.connect(smpBus);
+      compKs = ctx.createGain(); compKs.gain.value = compVol; compKs.connect(gtrBus);
       drumBus = ctx.createGain(); drumBus.gain.value = 0.55; drumBus.connect(out);
       clickBus = ctx.createGain(); clickBus.gain.value = 0.5; clickBus.connect(out);
       noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
@@ -65,10 +69,11 @@
   // имя файла — номер ноты MIDI, значение — измеренная высота записи (для точной подстройки)
   const SAMPLES = {
     nylon: { 35: 35.01, 38: 37.96, 40: 40.00, 42: 42.03, 44: 43.99, 45: 45.00, 47: 47.01, 49: 49.01, 50: 49.96, 52: 51.97, 54: 54.03, 55: 55.00, 57: 56.95, 59: 58.96, 61: 60.90, 63: 62.97, 64: 63.97, 66: 66.03, 68: 68.03, 69: 69.04, 71: 71.06, 73: 73.12, 75: 74.97, 76: 75.97, 78: 78.17, 79: 79.08, 80: 80.03, 81: 81.04, 82: 81.75 },
+    piano: { 36: 36, 39: 39, 42: 42, 45: 45, 48: 48, 51: 51, 54: 54, 57: 57, 60: 60, 63: 63, 66: 66, 69: 69, 72: 72, 75: 75, 78: 78, 81: 81, 84: 84, 87: 87 },
     drive: { 36: 36.08, 39: 39.09, 42: 42.10, 45: 45.13, 48: 48.11, 51: 51.03, 54: 54.03, 57: 57.04, 60: 60.06, 63: 62.97, 66: 66.03, 69: 69.04, 72: 72.06, 75: 74.97, 78: 77.88, 81: 81.04, 84: 84.06, 87: 87.21, 90: 89.88, 93: 93.04 }
   };
-  const smp = { nylon: new Map(), drive: new Map() }, loading = {};
-  let mode = 'auto', cur = 'nylon';
+  const smp = { nylon: new Map(), drive: new Map(), piano: new Map() }, loading = {};
+  let mode = 'auto', cur = 'nylon', compMode = 'piano';
 
   function decode(ab) { return new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej)); }
   function load(inst) {
@@ -89,19 +94,25 @@
   // выбрать инструмент для стиля и дождаться загрузки записей
   function prepare(style) {
     cur = instFor(style);
-    if (cur === 'synth') return Promise.resolve();
-    // в «Авто» ждём оба инструмента: раскодирование записей во время игры может подвесить страницу;
+    // ждём все нужные записи заранее: раскодирование во время игры может подвесить страницу;
     // но не дольше 3 с — если сеть медленная, первые ноты сыграет синтез
-    const all = mode === 'auto' ? Promise.all([load('nylon'), load('drive')]) : load(cur);
-    return Promise.race([all, new Promise(r => setTimeout(r, 3000))]);
+    const need = [];
+    if (cur !== 'synth') need.push(...(mode === 'auto' ? ['nylon', 'drive'] : [cur]));
+    need.push('piano'); // всегда: аккомпанемент можно переключить на фортепиано прямо во время игры
+    if (!need.length) return Promise.resolve();
+    return Promise.race([Promise.all(need.map(load)), new Promise(r => setTimeout(r, 3000))]);
   }
   function setMode(m) { mode = m; cur = instFor('blues'); }
-  function sampleFor(midi) {
-    const map = smp[cur];
+  // аккомпанемент: 'piano' или 'guitar' (тем же звуком, что и фраза)
+  function setComp(m) { compMode = m; }
+  function setCompVolume(v) { compVol = v; if (compSmp) { compSmp.gain.setTargetAtTime(v, ctx.currentTime, 0.05); compKs.gain.setTargetAtTime(v, ctx.currentTime, 0.05); } }
+  function sampleFor(midi, inst) {
+    inst = inst || cur;
+    const map = smp[inst];
     if (!map || !map.size) return null;
     let best = null;
     map.forEach((buf, k) => { if (best == null || Math.abs(k - midi) < Math.abs(best - midi)) best = k; });
-    return { buf: map.get(best), rate: Math.pow(2, (midi - SAMPLES[cur][best]) / 12) };
+    return { buf: map.get(best), rate: Math.pow(2, (midi - SAMPLES[inst][best]) / 12) };
   }
 
   function track(src, end) { live.add(src); src.onended = () => live.delete(src); }
@@ -110,11 +121,12 @@
   function pluck(midi, t, dur, o) {
     o = o || {};
     ensure();
-    const sm = !o.bus && cur !== 'synth' ? sampleFor(midi) : null;
+    const inst = o.inst || cur;
+    const sm = !o.bus && inst !== 'synth' ? sampleFor(midi, inst) : null;
     const { buf, rate } = sm || stringBuf(midi, o.bright || 0.62);
-    const bus = o.bus || (sm ? smpBus : gtrBus);
-    const ring = sm ? Math.max(o.ring || 0.06, 0.1) : (o.ring || 0.06);
-    const velMul = sm && cur === 'drive' ? 0.6 : 1;
+    const bus = o.bus || (o.comp ? (sm ? compSmp : compKs) : (sm ? smpBus : gtrBus));
+    const ring = sm ? Math.max(o.ring || 0.06, inst === 'piano' ? 0.18 : 0.1) : (o.ring || 0.06);
+    const velMul = sm && inst === 'drive' ? 0.6 : 1;
     const src = ctx.createBufferSource(); src.buffer = buf;
     const pr = src.playbackRate;
     const startRate = o.slideFrom != null ? rate * Math.pow(2, (o.slideFrom - midi) / 12) : rate;
@@ -147,7 +159,7 @@
     o = o || {};
     const gap = o.gap == null ? 0.022 : o.gap;
     const list = o.up ? notes.slice().reverse() : notes;
-    list.forEach((m, i) => pluck(m, t + i * gap, Math.max(0.05, dur - i * gap), { vel: (o.vel || 0.55) * (0.9 + 0.1 * Math.random()), ring: o.ring || 0.12, bright: o.bright || 0.5 }));
+    list.forEach((m, i) => pluck(m, t + i * gap, Math.max(0.05, dur - i * gap), { vel: (o.vel || 0.55) * (0.9 + 0.1 * Math.random()), ring: o.ring || 0.12, bright: o.bright || 0.5, inst: o.inst, comp: o.comp }));
   }
 
   function click(t, accent) {
@@ -209,20 +221,23 @@
   }
 
   // гармония под фразой / подложка: harm — [[rootPc, type, beats], …]
+  // аккомпанемент: фортепиано или гитара (как во фразе); громкость — общим регулятором
   function comp(harm, t0, spb, style, swing, vol) {
+    const piano = compMode === 'piano';
+    const base = { comp: true, inst: piano ? 'piano' : undefined };
+    const hit = (notes, t, dur, vel, gap, up) => strum(notes, t, dur, Object.assign({ vel: vel * vol * (piano ? 1.15 : 1), gap: piano ? 0.004 : gap, up: up && !piano }, base));
     let b = 0;
     harm.forEach(([pc, type, beats]) => {
       const v = Music.compVoicing(pc, type, 6);
       const notes = v.notes.filter(x => x != null);
       for (let k = 0; k < beats; k++) {
-        const bt = b + k, t = t0 + bt * spb;
-        const on = style === 'rock' ? true : style === 'shuffle' ? true : (k % 4 === 0 || k % 4 === 1);
+        const t = t0 + (b + k) * spb;
         if (style === 'swing') {
-          if (k % 4 === 0) strum(notes, t, spb * 0.9, { vel: 0.32 * vol, gap: 0.01 });
-          if (k % 4 === 1) strum(notes, t + spb * 2 / 3, spb * 0.5, { vel: 0.28 * vol, gap: 0.01 });
-        } else if (on) {
-          strum(notes, t, spb * (style === 'rock' ? 0.45 : 0.6), { vel: 0.3 * vol, gap: 0.012 });
-          if (style === 'rock') strum(notes, t + spb / 2, spb * 0.4, { vel: 0.22 * vol, gap: 0.01, up: true });
+          if (k % 4 === 0) hit(notes, t, spb * 0.9, 0.32, 0.01);
+          if (k % 4 === 1) hit(notes, t + spb * 2 / 3, spb * 0.5, 0.28, 0.01);
+        } else {
+          hit(notes, t, spb * (style === 'rock' ? 0.45 : 0.6), 0.3, 0.012);
+          if (style === 'rock') hit(notes, t + spb / 2, spb * 0.4, 0.22, 0.01, true);
         }
       }
       b += beats;
@@ -358,5 +373,5 @@
     };
   }
 
-  window.Snd = { ensure, now, prepare, setMode, load, get instrument() { return cur; }, pluck, strum, click, drums, bass, stopAll, playPhrase, comp, startLoop, micStart, micStop, detectPitch, noteTracker, get ctx() { return ctx; }, get looping() { return !!loop; } };
+  window.Snd = { ensure, now, prepare, setMode, setComp, setCompVolume, load, get instrument() { return cur; }, pluck, strum, click, drums, bass, stopAll, playPhrase, comp, startLoop, micStart, micStop, detectPitch, noteTracker, get ctx() { return ctx; }, get looping() { return !!loop; } };
 })();

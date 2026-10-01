@@ -32,6 +32,25 @@
       $$('[data-inst]').forEach(b => b.classList.toggle('on', b === el));
     });
   }
+  // аккомпанемент: фортепиано или гитара + громкость (0–100, 60 = обычная)
+  const compVolGain = v => v / 60;
+  Snd.setComp(store.ui.compInst || 'piano');
+  Snd.setCompVolume(compVolGain(store.ui.compVol == null ? 60 : store.ui.compVol));
+  const compControls = () => {
+    const ci = store.ui.compInst || 'piano', cv = store.ui.compVol == null ? 60 : store.ui.compVol;
+    return `<div class="comprow"><div class="chips wrap">${[['piano', 'Фортепиано'], ['guitar', 'Гитара']].map(([k, n]) => `<button class="chip sm${ci === k ? ' on' : ''}" data-ci="${k}">${n}</button>`).join('')}</div>
+      <div class="tempo"><span class="small muted">Громкость</span><input type="range" class="compvol" min="0" max="100" step="5" value="${cv}"><b class="compvolv">${cv}%</b></div></div>`;
+  };
+  function bindComp() {
+    on('[data-ci]', 'click', el => {
+      store.ui.compInst = el.dataset.ci; save(); Snd.setComp(store.ui.compInst);
+      $$('[data-ci]').forEach(b => b.classList.toggle('on', b === el));
+    });
+    on('.compvol', 'input', el => {
+      store.ui.compVol = +el.value; save(); Snd.setCompVolume(compVolGain(store.ui.compVol));
+      $$('.compvolv').forEach(b => b.textContent = el.value + '%');
+    });
+  }
   function audioOn() { Snd.ensure(); try { if (navigator.audioSession && navigator.audioSession.type !== 'play-and-record') navigator.audioSession.type = 'playback'; } catch (e) {} }
 
   const rootName = pc => P(M.rootByPc(pc).n);
@@ -263,6 +282,7 @@
         <p class="small muted">Лад: ${lk.scales.map(s => M.SCALES[s].name).join(', ')} от ${rootName(st.key)}.</p>
         <div class="card" style="padding:4px 14px">
           <label class="toggle">Аккомпанемент <input type="checkbox" id="tcomp" ${ui.lcomp ? 'checked' : ''}></label>
+          ${compControls()}
           <label class="toggle">Метроном и отсчёт <input type="checkbox" id="tmetro" ${ui.lmetro ? 'checked' : ''}></label>
           <label class="toggle">Повторять по кругу <input type="checkbox" id="tloop" ${ui.lloop ? 'checked' : ''}></label>
           <div class="toggle" style="cursor:default">Звук ${soundChips()}</div>
@@ -275,7 +295,7 @@
       bindBack();
       on('[data-key]', 'click', el => { stop(); st.key = +el.dataset.key; save(); render(); });
       on('[data-lm]', 'click', el => { ui.lmode = el.dataset.lm; save(); render(); });
-      bindSound();
+      bindSound(); bindComp();
       $('#fav').onclick = () => { store.fav[id] = !store.fav[id]; save(); render(); };
       $('#tcomp').onchange = e => { ui.lcomp = e.target.checked; save(); };
       $('#tmetro').onchange = e => { ui.lmetro = e.target.checked; save(); };
@@ -335,7 +355,7 @@
         <li>Нажмите «Повтори за мной» и повторяйте фразу, пока приложение ведёт её по тональностям.</li>
         <li>Включите <a href="#/backing">подложку</a> и вставьте фразу в своё соло.</li>
       </ol>
-      <footer>Работает без интернета. Чтобы установить: в браузере «Поделиться» → «На экран Домой» (iPhone) или меню → «Установить приложение» (Android).<br>На iPhone проверьте, что выключен беззвучный режим.<br>Записи гитары: tonejs-instruments (N. Brosowsky), FluidR3_GM (F. Wen) — <a href="samples/CREDITS.md">подробнее</a>.</footer>`;
+      <footer>Работает без интернета. Чтобы установить: в браузере «Поделиться» → «На экран Домой» (iPhone) или меню → «Установить приложение» (Android).<br>На iPhone проверьте, что выключен беззвучный режим.<br>Записи гитары и фортепиано: tonejs-instruments (N. Brosowsky), FluidR3_GM (F. Wen) — <a href="samples/CREDITS.md">подробнее</a>.</footer>`;
     bindSound();
   }
 
@@ -371,6 +391,7 @@
         <div class="card" style="padding:4px 14px;margin-top:14px">
           <label class="toggle"><span>Проверять по микрофону<br><span class="small muted">лучше в наушниках; аккомпанемент в вашей паузе выключается</span></span><input type="checkbox" id="mic" ${S.mic ? 'checked' : ''}></label>
           <label class="toggle">Аккомпанемент <input type="checkbox" id="comp" ${S.comp ? 'checked' : ''}></label>
+          ${compControls()}
           <label class="toggle">Метроном <input type="checkbox" id="metro" ${S.metro ? 'checked' : ''}></label>
           <label class="toggle"><span>Автопродолжение<br><span class="small muted">без остановок — руки остаются на грифе</span></span><input type="checkbox" id="auto" ${S.auto ? 'checked' : ''}></label>
         </div>
@@ -383,7 +404,7 @@
       on('[data-tm]', 'click', el => { S.tabMode = el.dataset.tm; save(); setup(); });
       $('#tempo').oninput = e => { S.tempo = +e.target.value; $('#tv').textContent = S.tempo + '%'; save(); };
       ['mic', 'comp', 'metro', 'auto'].forEach(k => $('#' + k).onchange = e => { S[k] = e.target.checked; save(); });
-      bindSound();
+      bindSound(); bindComp();
       $('#go').onclick = begin;
     }
 
@@ -563,6 +584,7 @@
           Ноты: ${M.scaleNotes(B.key, sc).map(P).join(' ')}. На грифе подписаны звуки текущего аккорда — цельтесь в них на сильных долях; бледные точки — остальные ноты лада.</div>
         <div class="fbwrap" id="fbw"></div>
         <div class="row small muted">Звук: ${soundChips()}</div>
+        <div class="card" style="padding:6px 14px"><div class="small muted">Аккорды</div>${compControls()}</div>
         <div class="row"><div class="grow"></div><div style="width:120px" id="dgw"></div><div class="grow"></div></div>
         <div class="player"><div class="row">
           <button class="play" id="play" aria-label="Играть">▶</button>
@@ -574,7 +596,7 @@
       $('#bpm').oninput = e => { B.bpm = +e.target.value; $('#bpmv').textContent = B.bpm; save(); };
       $('#bpm').onchange = () => { if (playing) { stop(); start(); } };
       $('#play').onclick = () => playing ? stop() : start();
-      bindSound();
+      bindSound(); bindComp();
       showBar(0, false);
     }
     function showBar(i, live) {

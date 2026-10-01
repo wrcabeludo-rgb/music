@@ -7,6 +7,6 @@
 Папка: [`guitar-impro/`](guitar-impro/)
 Сайт: https://wrcabeludo-rgb.github.io/music/guitar-impro/
 
-Звук — записи нейлоновой гитары и электрогитары с перегрузом (источники и лицензии: [`guitar-impro/samples/CREDITS.md`](guitar-impro/samples/CREDITS.md)), есть запасной синтез.
+Звук — записи нейлоновой гитары, электрогитары с перегрузом и фортепиано для аккомпанемента (громкость аккомпанемента регулируется) (источники и лицензии: [`guitar-impro/samples/CREDITS.md`](guitar-impro/samples/CREDITS.md)), есть запасной синтез.
 
 Устанавливается на телефон как приложение (PWA) и работает без интернета. При изменении файлов приложения увеличивайте `CACHE` в `guitar-impro/sw.js`. Проверка аппликатур и фраз: `node guitar-impro/tools/check.js`.
