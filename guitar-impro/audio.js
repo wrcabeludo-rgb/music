@@ -1,7 +1,8 @@
-// Звук: синтез струны (Карплус–Стронг), метроном, барабаны, бас, подложки и распознавание высоты с микрофона.
+// Звук: записи гитары (нейлон, перегруз) и запасной синтез струны (Карплус–Стронг),
+// метроном, барабаны, бас, подложки и распознавание высоты с микрофона.
 (function () {
   'use strict';
-  let ctx = null, out, gtrBus, bassBus, drumBus, clickBus;
+  let ctx = null, out, gtrBus, smpBus, bassBus, drumBus, clickBus;
   const bufCache = new Map();
   let noiseBuf = null;
   const live = new Set(); // запущенные источники — чтобы остановить всё разом
@@ -19,6 +20,12 @@
       gtrBus.connect(body); body.connect(tone); tone.connect(out);
       const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 700;
       bassBus = ctx.createGain(); bassBus.gain.value = 1.1; bassBus.connect(lp); lp.connect(out);
+      // записи гитары: сухой сигнал + немного «комнаты» (искусственная реверберация)
+      smpBus = ctx.createGain(); smpBus.gain.value = 1; smpBus.connect(out);
+      const rev = ctx.createConvolver(), wet = ctx.createGain();
+      const irLen = Math.floor(ctx.sampleRate * 1.4), ir = ctx.createBuffer(2, irLen, ctx.sampleRate);
+      for (let c = 0; c < 2; c++) { const d = ir.getChannelData(c); for (let i = 0; i < irLen; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / irLen, 3); }
+      rev.buffer = ir; wet.gain.value = 0.22; smpBus.connect(rev); rev.connect(wet); wet.connect(out);
       drumBus = ctx.createGain(); drumBus.gain.value = 0.55; drumBus.connect(out);
       clickBus = ctx.createGain(); clickBus.gain.value = 0.5; clickBus.connect(out);
       noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
@@ -54,13 +61,60 @@
     return res;
   }
 
+  // ---------- записи гитары ----------
+  // имя файла — номер ноты MIDI, значение — измеренная высота записи (для точной подстройки)
+  const SAMPLES = {
+    nylon: { 35: 35.01, 38: 37.96, 40: 40.00, 42: 42.03, 44: 43.99, 45: 45.00, 47: 47.01, 49: 49.01, 50: 49.96, 52: 51.97, 54: 54.03, 55: 55.00, 57: 56.95, 59: 58.96, 61: 60.90, 63: 62.97, 64: 63.97, 66: 66.03, 68: 68.03, 69: 69.04, 71: 71.06, 73: 73.12, 75: 74.97, 76: 75.97, 78: 78.17, 79: 79.08, 80: 80.03, 81: 81.04, 82: 81.75 },
+    drive: { 36: 36.08, 39: 39.09, 42: 42.10, 45: 45.13, 48: 48.11, 51: 51.03, 54: 54.03, 57: 57.04, 60: 60.06, 63: 62.97, 66: 66.03, 69: 69.04, 72: 72.06, 75: 74.97, 78: 77.88, 81: 81.04, 84: 84.06, 87: 87.21, 90: 89.88, 93: 93.04 }
+  };
+  const smp = { nylon: new Map(), drive: new Map() }, loading = {};
+  let mode = 'auto', cur = 'nylon';
+
+  function decode(ab) { return new Promise((res, rej) => ctx.decodeAudioData(ab, res, rej)); }
+  function load(inst) {
+    if (!SAMPLES[inst]) return Promise.resolve();
+    if (loading[inst]) return loading[inst];
+    ensure();
+    loading[inst] = Promise.all(Object.keys(SAMPLES[inst]).map(k =>
+      fetch('samples/' + inst + '/' + k + '.mp3').then(r => r.arrayBuffer()).then(decode).then(buf => {
+        let peak = 0;
+        for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) peak = Math.max(peak, Math.abs(d[i])); }
+        const g = peak ? 0.55 / peak : 1;
+        for (let c = 0; c < buf.numberOfChannels; c++) { const d = buf.getChannelData(c); for (let i = 0; i < d.length; i++) d[i] *= g; }
+        smp[inst].set(+k, buf);
+      }).catch(() => {})));
+    return loading[inst];
+  }
+  const instFor = style => mode === 'auto' ? (style === 'rock' ? 'drive' : 'nylon') : mode;
+  // выбрать инструмент для стиля и дождаться загрузки записей
+  function prepare(style) {
+    cur = instFor(style);
+    if (cur === 'synth') return Promise.resolve();
+    // в «Авто» ждём оба инструмента: раскодирование записей во время игры может подвесить страницу;
+    // но не дольше 3 с — если сеть медленная, первые ноты сыграет синтез
+    const all = mode === 'auto' ? Promise.all([load('nylon'), load('drive')]) : load(cur);
+    return Promise.race([all, new Promise(r => setTimeout(r, 3000))]);
+  }
+  function setMode(m) { mode = m; cur = instFor('blues'); }
+  function sampleFor(midi) {
+    const map = smp[cur];
+    if (!map || !map.size) return null;
+    let best = null;
+    map.forEach((buf, k) => { if (best == null || Math.abs(k - midi) < Math.abs(best - midi)) best = k; });
+    return { buf: map.get(best), rate: Math.pow(2, (midi - SAMPLES[cur][best]) / 12) };
+  }
+
   function track(src, end) { live.add(src); src.onended = () => live.delete(src); }
 
   // одна нота гитары
   function pluck(midi, t, dur, o) {
     o = o || {};
     ensure();
-    const { buf, rate } = stringBuf(midi, o.bright || 0.62);
+    const sm = !o.bus && cur !== 'synth' ? sampleFor(midi) : null;
+    const { buf, rate } = sm || stringBuf(midi, o.bright || 0.62);
+    const bus = o.bus || (sm ? smpBus : gtrBus);
+    const ring = sm ? Math.max(o.ring || 0.06, 0.1) : (o.ring || 0.06);
+    const velMul = sm && cur === 'drive' ? 0.6 : 1;
     const src = ctx.createBufferSource(); src.buffer = buf;
     const pr = src.playbackRate;
     const startRate = o.slideFrom != null ? rate * Math.pow(2, (o.slideFrom - midi) / 12) : rate;
@@ -77,13 +131,13 @@
       lfo.frequency.value = 5.5; lg.gain.setValueAtTime(0, t); lg.gain.linearRampToValueAtTime(rate * 0.012, t + Math.min(0.4, dur * 0.5));
       lfo.connect(lg); lg.connect(pr); lfo.start(t + 0.1); lfo.stop(t + dur + 0.1);
     }
-    const g = ctx.createGain(), v = (o.vel == null ? 0.8 : o.vel) * (o.legato ? 0.55 : 1);
+    const g = ctx.createGain(), v = (o.vel == null ? 0.8 : o.vel) * (o.legato ? (sm ? 0.75 : 0.55) : 1) * velMul;
     g.gain.setValueAtTime(v, t);
     const end = t + dur;
     g.gain.setValueAtTime(v, Math.max(t, end - 0.01));
-    g.gain.exponentialRampToValueAtTime(0.0008, end + (o.ring || 0.06));
-    src.connect(g); g.connect(o.bus || gtrBus);
-    src.start(t); src.stop(end + (o.ring || 0.06) + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0008, end + ring);
+    src.connect(g); g.connect(bus);
+    src.start(t); src.stop(end + ring + 0.02);
     track(src);
     return src;
   }
@@ -304,5 +358,5 @@
     };
   }
 
-  window.Snd = { ensure, now, pluck, strum, click, drums, bass, stopAll, playPhrase, comp, startLoop, micStart, micStop, detectPitch, noteTracker, get ctx() { return ctx; }, get looping() { return !!loop; } };
+  window.Snd = { ensure, now, prepare, setMode, load, get instrument() { return cur; }, pluck, strum, click, drums, bass, stopAll, playPhrase, comp, startLoop, micStart, micStop, detectPitch, noteTracker, get ctx() { return ctx; }, get looping() { return !!loop; } };
 })();

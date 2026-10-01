@@ -22,6 +22,16 @@
   function leave() { cleanups.forEach(f => { try { f(); } catch (e) {} }); cleanups = []; Snd.stopAll(); }
   function raf(fn) { let id; const loop = () => { if (fn() !== false) id = requestAnimationFrame(loop); }; id = requestAnimationFrame(loop); onLeave(() => cancelAnimationFrame(id)); }
   function later(fn, ms) { const id = setTimeout(fn, ms); onLeave(() => clearTimeout(id)); return id; }
+  // звук гитары: авто (рок — перегруз, остальное — нейлон), нейлон, перегруз, синтез
+  const INST = [['auto', 'Авто'], ['nylon', 'Нейлон'], ['drive', 'Перегруз'], ['synth', 'Синтез']];
+  Snd.setMode(store.ui.inst || 'auto');
+  const soundChips = () => `<div class="chips wrap">${INST.map(([k, n]) => `<button class="chip sm${(store.ui.inst || 'auto') === k ? ' on' : ''}" data-inst="${k}">${n}</button>`).join('')}</div>`;
+  function bindSound() {
+    on('[data-inst]', 'click', el => {
+      store.ui.inst = el.dataset.inst; save(); Snd.setMode(store.ui.inst);
+      $$('[data-inst]').forEach(b => b.classList.toggle('on', b === el));
+    });
+  }
   function audioOn() { Snd.ensure(); try { if (navigator.audioSession && navigator.audioSession.type !== 'play-and-record') navigator.audioSession.type = 'playback'; } catch (e) {} }
 
   const rootName = pc => P(M.rootByPc(pc).n);
@@ -155,9 +165,11 @@
   function playVoicing(v, arp) {
     audioOn();
     const notes = v.notes.filter(x => x != null);
-    const t = Snd.now() + 0.05;
-    if (arp) notes.forEach((m, i) => Snd.pluck(m, t + i * 0.22, 1.6 - i * 0.1, { vel: 0.7 }));
-    else Snd.strum(notes, t, 2.2, { vel: 0.7, gap: 0.03 });
+    Snd.prepare('chords').then(() => {
+      const t = Snd.now() + 0.05;
+      if (arp) notes.forEach((m, i) => Snd.pluck(m, t + i * 0.22, 1.6 - i * 0.1, { vel: 0.7 }));
+      else Snd.strum(notes, t, 2.2, { vel: 0.7, gap: 0.03 });
+    });
   }
 
   // ===================== ЭКРАН: АККОРДЫ =====================
@@ -253,6 +265,7 @@
           <label class="toggle">Аккомпанемент <input type="checkbox" id="tcomp" ${ui.lcomp ? 'checked' : ''}></label>
           <label class="toggle">Метроном и отсчёт <input type="checkbox" id="tmetro" ${ui.lmetro ? 'checked' : ''}></label>
           <label class="toggle">Повторять по кругу <input type="checkbox" id="tloop" ${ui.lloop ? 'checked' : ''}></label>
+          <div class="toggle" style="cursor:default">Звук ${soundChips()}</div>
         </div>
         <a class="btn wide big" href="#/repeat/${id}">🎧 Повтори за мной</a>
         <div class="player"><div class="row">
@@ -262,6 +275,7 @@
       bindBack();
       on('[data-key]', 'click', el => { stop(); st.key = +el.dataset.key; save(); render(); });
       on('[data-lm]', 'click', el => { ui.lmode = el.dataset.lm; save(); render(); });
+      bindSound();
       $('#fav').onclick = () => { store.fav[id] = !store.fav[id]; save(); render(); };
       $('#tcomp').onchange = e => { ui.lcomp = e.target.checked; save(); };
       $('#tmetro').onchange = e => { ui.lmetro = e.target.checked; save(); };
@@ -280,6 +294,9 @@
     }
     function start() {
       audioOn(); playing = true; $('#play').textContent = '■';
+      Snd.prepare(lk.style).then(() => { if (playing) go(); });
+    }
+    function go() {
       let t = Snd.now() + 0.12;
       const spb = 60 / st.bpm;
       if (ui.lmetro) { for (let b = 0; b < 4; b++) Snd.click(t + b * spb, b === 0); t += 4 * spb; }
@@ -303,6 +320,9 @@
       <a class="menu" href="#/ear"><b>👂 Слух: тип аккорда</b><small>Приложение играет аккорд — определите maj7, m7, 7, m7♭5…${q.ear ? ` · верно ${q.ear.ok} из ${q.ear.n}` : ''}</small></a>
       <a class="menu" href="#/dq"><b>🔲 Аккорд по диаграмме</b><small>Узнайте аккорд по аппликатуре на грифе.${q.dq ? ` · верно ${q.dq.ok} из ${q.dq.n}` : ''}</small></a>
       <a class="menu" href="#/fq"><b>🧮 Формулы и ноты</b><small>Ступени и звуки аккордов: от трезвучий до альтераций.${q.fq ? ` · верно ${q.fq.ok} из ${q.fq.n}` : ''}</small></a>
+      <h2>Звук гитары</h2>
+      ${soundChips()}
+      <p class="small muted" style="margin:4px 0 0">«Авто»: рок — электрогитара с перегрузом, блюз, джаз и аккорды — нейлон. «Синтез» — лёгкий запасной звук без записей.</p>
       <h2>Быстрый старт</h2>
       <div class="stat3">
         <div><b>${M.TYPES.length}</b><span class="small muted">типов аккордов</span></div>
@@ -315,7 +335,8 @@
         <li>Нажмите «Повтори за мной» и повторяйте фразу, пока приложение ведёт её по тональностям.</li>
         <li>Включите <a href="#/backing">подложку</a> и вставьте фразу в своё соло.</li>
       </ol>
-      <footer>Работает без интернета. Чтобы установить: в браузере «Поделиться» → «На экран Домой» (iPhone) или меню → «Установить приложение» (Android).<br>На iPhone проверьте, что выключен беззвучный режим.</footer>`;
+      <footer>Работает без интернета. Чтобы установить: в браузере «Поделиться» → «На экран Домой» (iPhone) или меню → «Установить приложение» (Android).<br>На iPhone проверьте, что выключен беззвучный режим.<br>Записи гитары: tonejs-instruments (N. Brosowsky), FluidR3_GM (F. Wen) — <a href="samples/CREDITS.md">подробнее</a>.</footer>`;
+    bindSound();
   }
 
   // ===================== УПРАЖНЕНИЕ: ПОВТОРИ ЗА МНОЙ =====================
@@ -343,6 +364,8 @@
         <div class="chips wrap">${[1, 2, 3, 4].map(k => `<button class="chip sm${S.reps === k ? ' on' : ''}" data-reps="${k}">${k}</button>`).join('')}</div>
         <label class="f">Темп: <b id="tv">${S.tempo}%</b> от исходного</label>
         <input type="range" id="tempo" min="40" max="130" step="5" value="${S.tempo}">
+        <label class="f">Звук гитары</label>
+        ${soundChips()}
         <label class="f">Табулатура</label>
         <div class="chips wrap">${[['always', 'Видна'], ['after', 'После попытки'], ['never', 'Только на слух']].map(([k, n]) => `<button class="chip sm${S.tabMode === k ? ' on' : ''}" data-tm="${k}">${n}</button>`).join('')}</div>
         <div class="card" style="padding:4px 14px;margin-top:14px">
@@ -360,6 +383,7 @@
       on('[data-tm]', 'click', el => { S.tabMode = el.dataset.tm; save(); setup(); });
       $('#tempo').oninput = e => { S.tempo = +e.target.value; $('#tv').textContent = S.tempo + '%'; save(); };
       ['mic', 'comp', 'metro', 'auto'].forEach(k => $('#' + k).onchange = e => { S[k] = e.target.checked; save(); });
+      bindSound();
       $('#go').onclick = begin;
     }
 
@@ -391,6 +415,10 @@
     function cycle() {
       if (R.stopped) return;
       Snd.stopAll();
+      Snd.prepare(R.lk.style).then(() => { if (!R.stopped) cycleRun(); });
+    }
+
+    function cycleRun() {
       const lk = R.lk, base = L.parse(lk.tab);
       const ev = L.transpose(base, lk.key, R.key);
       const beats = base.reduce((a, e) => Math.max(a, e.t + e.d), 0);
@@ -534,6 +562,7 @@
         <div class="note-tip">Лад: <b>${esc(prog.sc.map(([s]) => M.SCALES[s].name + ' от ' + rootName(B.key)).join(' или '))}</b>.
           Ноты: ${M.scaleNotes(B.key, sc).map(P).join(' ')}. На грифе подписаны звуки текущего аккорда — цельтесь в них на сильных долях; бледные точки — остальные ноты лада.</div>
         <div class="fbwrap" id="fbw"></div>
+        <div class="row small muted">Звук: ${soundChips()}</div>
         <div class="row"><div class="grow"></div><div style="width:120px" id="dgw"></div><div class="grow"></div></div>
         <div class="player"><div class="row">
           <button class="play" id="play" aria-label="Играть">▶</button>
@@ -545,6 +574,7 @@
       $('#bpm').oninput = e => { B.bpm = +e.target.value; $('#bpmv').textContent = B.bpm; save(); };
       $('#bpm').onchange = () => { if (playing) { stop(); start(); } };
       $('#play').onclick = () => playing ? stop() : start();
+      bindSound();
       showBar(0, false);
     }
     function showBar(i, live) {
@@ -567,8 +597,9 @@
     }
     function start() {
       audioOn(); playing = true; $('#play').textContent = '■';
-      const p = Object.assign({}, prog, { bars: prog.bars });
-      Snd.startLoop(p, B.key, B.bpm, i => { if (playing) { curBar = i; showBar(i, true); } });
+      Snd.prepare(prog.style === 'rock' ? 'rock' : 'jazz').then(() => {
+        if (playing) Snd.startLoop(prog, B.key, B.bpm, i => { if (playing) { curBar = i; showBar(i, true); } });
+      });
     }
     function stop() { playing = false; Snd.stopAll(); const b = $('#play'); if (b) b.textContent = '▶'; }
     onLeave(() => { playing = false; });
@@ -729,7 +760,7 @@
       const rows = [['1', 0], ['b2', 1], ['2', 2], ['b3', 3], ['3', 4], ['4', 5], ['b5', 6], ['5', 7], ['#5', 8], ['6', 9], ['b7', 10], ['7', 11]];
       el.innerHTML = `<table class="t"><tr><th>Ступень</th><th>Полутонов</th><th>Интервал</th><th>от C</th></tr>${rows.map(([iv, s]) =>
         `<tr class="click" data-s="${s}"><td><b>${P(iv)}</b></td><td>${s}</td><td>${esc(M.IV_NAMES[iv])}</td><td>${P(M.spell('C', iv))} ▶</td></tr>`).join('')}</table>`;
-      el.querySelectorAll('[data-s]').forEach(tr => tr.onclick = () => { audioOn(); const t = Snd.now() + 0.05; Snd.pluck(48, t, 1.2); Snd.pluck(48 + +tr.dataset.s, t + 0.6, 1.4); Snd.pluck(48, t + 1.4, 1.4, { vel: 0.5 }); Snd.pluck(48 + +tr.dataset.s, t + 1.4, 1.4, { vel: 0.5 }); });
+      el.querySelectorAll('[data-s]').forEach(tr => tr.onclick = () => { audioOn(); Snd.prepare('chords').then(() => { const t = Snd.now() + 0.05; Snd.pluck(48, t, 1.2); Snd.pluck(48 + +tr.dataset.s, t + 0.6, 1.4); Snd.pluck(48, t + 1.4, 1.4, { vel: 0.5 }); Snd.pluck(48 + +tr.dataset.s, t + 1.4, 1.4, { vel: 0.5 }); }); });
     },
     chordtable(el) {
       el.innerHTML = M.CATS.filter(c => c.id !== 'shell').map(c => `<h3>${c.name}</h3><table class="t"><tr><th>Аккорд</th><th>Формула</th><th>Ноты</th></tr>${M.TYPES.filter(t => t.cat === c.id).map(t =>
@@ -767,6 +798,9 @@
         el.querySelector('#scsel').onchange = e => { sc = e.target.value; draw(); };
         el.querySelector('#scp').onclick = () => {
           audioOn(); Snd.stopAll();
+          Snd.prepare('chords').then(() => playScale());
+        };
+        const playScale = () => {
           const r = 45 + ((key - 9 + 12) % 12) + (key < 4 ? 12 : 0);
           const steps = S.f.map(iv => M.IV[iv][0]).sort((a, b) => a - b).concat([12]);
           const seq = steps.concat(steps.slice(0, -1).reverse());
