@@ -1,6 +1,6 @@
 // Офлайн-кэш «Гитара: аккорды и импровизация».
 // При изменении файлов приложения увеличивайте CACHE — старый кэш удалится автоматически.
-const CACHE = 'guitar-impro-v4';
+const CACHE = 'guitar-impro-v5';
 const FILES = ['./', 'index.html', 'style.css', 'music.js', 'licks.js', 'theory.js', 'audio.js', 'app.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
   // записи гитары

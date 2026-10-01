@@ -374,6 +374,14 @@
     return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
   }
 
+  const ACCENT = '<svg viewBox="0 0 24 14" aria-hidden="true"><path d="M3 2 L21 7 L3 12"/></svg>';
+  // блок доли: акцент — значок «>» и полная заливка, доля — нота, пауза — крестик
+  function beatHtml(lv, i, d) {
+    const note = d === 8 ? '♪' : '♩';
+    return `<button class="mbeat lv${lv}" data-b="${i}" aria-label="Доля ${i + 1}: ${lv === 2 ? 'акцент' : lv === 1 ? 'обычная' : 'пауза'}"><span class="mbin">
+      <i>${lv === 2 ? ACCENT : ''}</i><i></i><i>${lv === 0 ? '✕' : note}</i></span></button>`;
+  }
+
   function viewMetro() {
     const m = store.ui.metro = store.ui.metro || {};
     if (!m.bpm) m.bpm = 70;
@@ -388,8 +396,8 @@
       const [n, d] = SIGS[m.sig];
       app.innerHTML = `
         <div class="mtop">${top('Метроном', '#/practice')}<a class="icon-btn mfork" href="#/tuner" aria-label="Тюнер">${FORK}</a></div>
-        <div class="mbeats" style="--n:${n}">${m.lv.map((lv, i) => `<button class="mbeat lv${lv}" data-b="${i}" aria-label="Доля ${i + 1}"><i></i><i></i><i><span>${d === 8 ? '♪' : '♩'}</span></i></button>`).join('')}</div>
-        <p class="small muted" style="text-align:center;margin:4px 0 0">Нажмите на долю: акцент → тихо → выкл.</p>
+        <div class="mbeats" style="--n:${n}">${m.lv.map((lv, i) => beatHtml(lv, i, d)).join('')}</div>
+        <div class="mlegend small muted"><span><i class="mk acc">${ACCENT}</i> акцент</span><span><i class="mk">${d === 8 ? '♪' : '♩'}</i> доля</span><span><i class="mk off">✕</i> пауза</span></div>
         <div class="mbpm"><button class="mpm" data-d="-1" aria-label="Медленнее">−</button><b id="bpm">${m.bpm}</b><button class="mpm" data-d="1" aria-label="Быстрее">+</button></div>
         <div class="mdial">
           <svg viewBox="0 0 320 320" id="dial" aria-label="Темп">
@@ -406,8 +414,17 @@
         </div>`;
       bindBack();
       placeKnob();
-      on('[data-b]', 'click', el => { const i = +el.dataset.b; m.lv[i] = m.lv[i] === 1 ? 2 : m.lv[i] === 2 ? 0 : 1; el.className = 'mbeat lv' + m.lv[i]; save(); });
-      on('.mpm', 'click', el => setBpm(m.bpm + +el.dataset.d));
+      on('[data-b]', 'click', el => { const i = +el.dataset.b; m.lv[i] = m.lv[i] === 1 ? 2 : m.lv[i] === 2 ? 0 : 1; save(); render(); });
+      // − / +: нажатие — шаг 1, удержание — непрерывно
+      $$('.mpm').forEach(el => {
+        let t1 = null, t2 = null;
+        const step = () => setBpm(m.bpm + +el.dataset.d);
+        const end = () => { clearTimeout(t1); clearInterval(t2); t1 = t2 = null; };
+        el.addEventListener('pointerdown', e => { e.preventDefault(); step(); t1 = setTimeout(() => { t2 = setInterval(step, 70); }, 420); });
+        ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => el.addEventListener(ev, end));
+        el.addEventListener('click', e => { if (e.detail === 0) step(); }); // клавиатура
+        onLeave(end);
+      });
       $('#play').onclick = () => playing ? stop() : start();
       $('#sig').onclick = () => { m.sig = (m.sig + 1) % SIGS.length; const n2 = SIGS[m.sig][0]; m.lv = Array.from({ length: n2 }, (_, i) => i === 0 ? 2 : 1); if (SIGS[m.sig][1] === 8 && n2 % 3 === 0) for (let i = 3; i < n2; i += 3) m.lv[i] = 2; save(); const was = playing; stop(); render(); if (was) start(); };
       $('#sub').onclick = () => { m.sub = (m.sub + 1) % SUBS.length; save(); $('#sub').textContent = SUBS[m.sub][1]; };
