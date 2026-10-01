@@ -170,3 +170,53 @@ table.t tr.click:active td{background:var(--card2)}
 .w{margin:12px 0}
 .empty{padding:30px 10px;text-align:center;color:var(--muted)}
 footer{margin:28px 0 8px;font-size:.82rem;color:var(--muted);text-align:center}
+
+/* инструменты на главной */
+.tools2{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:10px 0 4px}
+.tool{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;color:var(--text);text-decoration:none}
+.tool svg{width:28px;height:28px;fill:none;stroke:var(--acc);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* метроном */
+.mtop{display:flex;align-items:center;justify-content:space-between}
+.mtop .top{margin:0}
+.mfork{display:flex;align-items:center;justify-content:center;color:var(--text)}
+.mbeats{display:grid;grid-template-columns:repeat(var(--n),1fr);gap:clamp(6px,3vw,22px);max-width:420px;margin:26px auto 0}
+.mbeat{display:flex;flex-direction:column;height:clamp(84px,22vw,104px);border:2px solid var(--muted);border-radius:12px;padding:0;overflow:hidden;background:none;cursor:pointer}
+.mbeat i{flex:1;border-top:2px solid var(--muted);display:flex;align-items:center;justify-content:center;font-style:normal;color:var(--bg);font-size:1.2rem}
+.mbeat i:first-child{border-top:0}
+.mbeat.lv1 i:last-child,.mbeat.lv2 i{background:var(--muted)}
+.mbeat.lv0 i span{color:var(--muted)}
+.mbeat.now{border-color:var(--acc)}
+.mbeat.now.lv1 i:last-child,.mbeat.now.lv2 i{background:var(--acc);border-color:var(--acc)}
+.mbpm{display:flex;align-items:center;justify-content:space-between;max-width:360px;margin:22px auto 4px}
+.mbpm b{font-size:4.6rem;font-weight:300;font-variant-numeric:tabular-nums;line-height:1}
+.mpm{background:none;border:0;color:var(--text);font-size:2.6rem;font-weight:300;width:64px;height:64px;cursor:pointer}
+.mdial{position:relative;max-width:340px;margin:0 auto}
+.mdial svg{display:block;width:100%;height:auto;touch-action:none;user-select:none}
+.mdial .track{fill:none;stroke:var(--card2);stroke-width:26;stroke-linecap:butt}
+.mdial text{fill:var(--text);font-size:19px;font-weight:600;text-anchor:middle;dominant-baseline:central}
+.mdial #knob{fill:var(--acc)}
+.mplay{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:31%;aspect-ratio:1;border-radius:50%;border:0;background:var(--acc);color:var(--acc-ink);font-size:2.4rem;cursor:pointer}
+.mbottom{display:flex;justify-content:space-between;align-items:center;max-width:420px;margin:6px auto 0}
+.mlink{background:none;border:0;color:var(--muted);font:inherit;font-size:1.6rem;min-width:64px;min-height:52px;cursor:pointer}
+
+/* тюнер */
+.tuner{max-width:480px;margin:0 auto}
+.tnote{position:relative;text-align:center;font-weight:700;line-height:1;margin:34px 0 18px;color:var(--text)}
+.tnote #tl{font-size:9rem}
+.tnote sup{font-size:3.4rem;vertical-align:top;position:relative;top:.6em}
+.tnote sub{font-size:1.4rem;color:var(--muted);margin-left:2px}
+.tnote.idle{opacity:.35}
+.tnote.ok #tl,.tnote.ok sup{color:var(--ok)}
+.tscale{position:relative;height:96px;margin:10px -16px 0;overflow:hidden}
+.tticks{position:absolute;inset:0;display:flex;justify-content:space-between;align-items:center;padding:0 2%}
+.tticks i{width:2px;height:34%;background:var(--muted);opacity:.7}
+.tticks i.l{height:50%}
+.tticks i.c{height:66%;width:3px;background:var(--text);opacity:1}
+.tneedle{position:absolute;top:12%;bottom:12%;width:7px;margin-left:-3.5px;left:50%;border-radius:4px;background:var(--acc);transition:left .12s linear}
+.tneedle.ok{background:var(--ok)}
+.tinfo{display:flex;justify-content:space-between;margin:8px 4px 0;font-variant-numeric:tabular-nums}
+.tstr{display:flex;justify-content:space-between;gap:6px;margin-top:22px}
+.tstr span{flex:1;text-align:center;border:1px solid var(--line);border-radius:12px;padding:6px 0;font-size:.75rem;color:var(--muted)}
+.tstr span b{display:block;font-size:1.1rem;color:var(--text)}
+.tstr span.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 18%,var(--card))}

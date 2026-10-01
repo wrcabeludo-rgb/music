@@ -170,6 +170,16 @@
     o.connect(g); g.connect(clickBus); o.start(t); o.stop(t + 0.05); track(o);
   }
 
+  // щелчок метронома: 2 — акцент, 1 — обычная доля, 0.5 — дробление доли
+  function tick(t, level) {
+    ensure();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.frequency.value = level >= 2 ? 2400 : level >= 1 ? 1700 : 1200;
+    const v = level >= 2 ? 1 : level >= 1 ? 0.6 : 0.28;
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+    o.connect(g); g.connect(clickBus); o.start(t); o.stop(t + 0.05); track(o);
+  }
+
   function noise(t, dur, type, freq, vol, bus) {
     const s = ctx.createBufferSource(); s.buffer = noiseBuf;
     const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq;
@@ -373,5 +383,5 @@
     };
   }
 
-  window.Snd = { ensure, now, prepare, setMode, setComp, setCompVolume, load, get instrument() { return cur; }, pluck, strum, click, drums, bass, stopAll, playPhrase, comp, startLoop, micStart, micStop, detectPitch, noteTracker, get ctx() { return ctx; }, get looping() { return !!loop; } };
+  window.Snd = { ensure, now, prepare, setMode, setComp, setCompVolume, load, get instrument() { return cur; }, tick, pluck, strum, click, drums, bass, stopAll, playPhrase, comp, startLoop, micStart, micStop, detectPitch, noteTracker, get ctx() { return ctx; }, get looping() { return !!loop; } };
 })();

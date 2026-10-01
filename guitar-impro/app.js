@@ -335,6 +335,10 @@
     app.innerHTML = `
       <h1>Гитара: аккорды и импровизация</h1>
       <p class="muted small" style="margin:0 0 6px">Аппликатуры, фразы для импровизации, теория и тренажёры.</p>
+      <div class="tools2">
+        <a class="tool" href="#/metro"><svg viewBox="0 0 24 24"><path d="M9 3h6l4 18H5z"/><path d="M12 17l5-10"/><path d="M8 17h8"/></svg><b>Метроном</b></a>
+        <a class="tool" href="#/tuner">${FORK.replace('width="22" height="22"', '')}<b>Тюнер</b></a>
+      </div>
       <a class="menu hero" href="#/repeat"><b>🎧 Повтори за мной</b><small>Приложение играет фразу — вы повторяете в паузе. Смена тональностей по кругу, проверка нот через микрофон.</small></a>
       <a class="menu" href="#/backing"><b>🥁 Подложки для импровизации</b><small>Блюз, джазовый блюз, ii–V–I, рок: бас, барабаны, аккорды и подсказка лада.</small></a>
       <a class="menu" href="#/ear"><b>👂 Слух: тип аккорда</b><small>Приложение играет аккорд — определите maj7, m7, 7, m7♭5…${q.ear ? ` · верно ${q.ear.ok} из ${q.ear.n}` : ''}</small></a>
@@ -357,6 +361,153 @@
       </ol>
       <footer>Работает без интернета. Чтобы установить: в браузере «Поделиться» → «На экран Домой» (iPhone) или меню → «Установить приложение» (Android).<br>На iPhone проверьте, что выключен беззвучный режим.<br>Записи гитары и фортепиано: tonejs-instruments (N. Brosowsky), FluidR3_GM (F. Wen) — <a href="samples/CREDITS.md">подробнее</a>.</footer>`;
     bindSound();
+  }
+
+  // ===================== МЕТРОНОМ =====================
+  const SIGS = [[2, 4], [3, 4], [4, 4], [5, 4], [6, 8], [7, 8], [12, 8]];
+  const SUBS = [[1, '♩'], [2, '♫'], [3, '³'], [4, '𝅘𝅥𝅯']];
+  const DIAL = { cx: 160, cy: 160, r: 130, min: 30, max: 270 };
+  const bpmAngle = b => (b - 150) * 1.2; // градусы от верха, по часовой
+  const polar = (deg, r) => { const a = deg * Math.PI / 180; return [DIAL.cx + r * Math.sin(a), DIAL.cy - r * Math.cos(a)]; };
+  function arcPath(a0, a1, r) {
+    const [x0, y0] = polar(a0, r), [x1, y1] = polar(a1, r);
+    return `M ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(1)} ${y1.toFixed(1)}`;
+  }
+
+  function viewMetro() {
+    const m = store.ui.metro = store.ui.metro || {};
+    if (!m.bpm) m.bpm = 70;
+    if (m.sig == null) m.sig = 2;
+    if (m.sub == null) m.sub = 0;
+    const beatsN = () => SIGS[m.sig][0];
+    if (!Array.isArray(m.lv) || m.lv.length !== beatsN()) m.lv = Array.from({ length: beatsN() }, (_, i) => i === 0 ? 2 : 1);
+    let playing = false, timer = null, next = 0, beat = 0, sub = 0, queue = [], taps = [];
+    const clamp = b => Math.max(DIAL.min, Math.min(DIAL.max, Math.round(b)));
+
+    function render() {
+      const [n, d] = SIGS[m.sig];
+      app.innerHTML = `
+        <div class="mtop">${top('Метроном', '#/practice')}<a class="icon-btn mfork" href="#/tuner" aria-label="Тюнер">${FORK}</a></div>
+        <div class="mbeats" style="--n:${n}">${m.lv.map((lv, i) => `<button class="mbeat lv${lv}" data-b="${i}" aria-label="Доля ${i + 1}"><i></i><i></i><i><span>${d === 8 ? '♪' : '♩'}</span></i></button>`).join('')}</div>
+        <p class="small muted" style="text-align:center;margin:4px 0 0">Нажмите на долю: акцент → тихо → выкл.</p>
+        <div class="mbpm"><button class="mpm" data-d="-1" aria-label="Медленнее">−</button><b id="bpm">${m.bpm}</b><button class="mpm" data-d="1" aria-label="Быстрее">+</button></div>
+        <div class="mdial">
+          <svg viewBox="0 0 320 320" id="dial" aria-label="Темп">
+            <path d="${arcPath(bpmAngle(DIAL.min), bpmAngle(DIAL.max), DIAL.r)}" class="track"/>
+            ${[50, 100, 150, 200, 250].map(v => { const [x, y] = polar(bpmAngle(v), DIAL.r - 48); return `<text x="${x.toFixed(1)}" y="${y.toFixed(1)}">${v}</text>`; }).join('')}
+            <circle id="knob" r="22"/>
+          </svg>
+          <button class="mplay" id="play" aria-label="Старт">${playing ? '■' : '▶'}</button>
+        </div>
+        <div class="mbottom">
+          <button class="mlink" id="sig">${n}/${d}</button>
+          <button class="mlink" id="sub" aria-label="Дробление доли">${SUBS[m.sub][1]}</button>
+          <button class="mlink" id="tap">Тап</button>
+        </div>`;
+      bindBack();
+      placeKnob();
+      on('[data-b]', 'click', el => { const i = +el.dataset.b; m.lv[i] = m.lv[i] === 1 ? 2 : m.lv[i] === 2 ? 0 : 1; el.className = 'mbeat lv' + m.lv[i]; save(); });
+      on('.mpm', 'click', el => setBpm(m.bpm + +el.dataset.d));
+      $('#play').onclick = () => playing ? stop() : start();
+      $('#sig').onclick = () => { m.sig = (m.sig + 1) % SIGS.length; const n2 = SIGS[m.sig][0]; m.lv = Array.from({ length: n2 }, (_, i) => i === 0 ? 2 : 1); if (SIGS[m.sig][1] === 8 && n2 % 3 === 0) for (let i = 3; i < n2; i += 3) m.lv[i] = 2; save(); const was = playing; stop(); render(); if (was) start(); };
+      $('#sub').onclick = () => { m.sub = (m.sub + 1) % SUBS.length; save(); $('#sub').textContent = SUBS[m.sub][1]; };
+      $('#tap').onclick = () => {
+        const t = performance.now();
+        taps = taps.filter(x => t - x < 2500); taps.push(t);
+        if (taps.length >= 2) { const iv = (taps[taps.length - 1] - taps[0]) / (taps.length - 1); setBpm(60000 / iv); }
+      };
+      // перетаскивание ручки по кругу
+      const svg = $('#dial');
+      let drag = false;
+      const fromEvent = e => {
+        const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 320 - DIAL.cx, y = (e.clientY - r.top) / r.height * 320 - DIAL.cy;
+        return { a: Math.atan2(x, -y) * 180 / Math.PI, d: Math.hypot(x, y) };
+      };
+      svg.addEventListener('pointerdown', e => { const p = fromEvent(e); if (p.d < 75) return; drag = true; svg.setPointerCapture(e.pointerId); move(p); });
+      svg.addEventListener('pointermove', e => { if (drag) move(fromEvent(e)); });
+      svg.addEventListener('pointerup', () => { drag = false; });
+      const move = p => { let a = Math.max(bpmAngle(DIAL.min), Math.min(bpmAngle(DIAL.max), p.a)); setBpm(150 + a / 1.2); };
+    }
+    function placeKnob() { const [x, y] = polar(bpmAngle(m.bpm), DIAL.r); const k = $('#knob'); k.setAttribute('cx', x.toFixed(1)); k.setAttribute('cy', y.toFixed(1)); }
+    function setBpm(b) { m.bpm = clamp(b); $('#bpm').textContent = m.bpm; placeKnob(); save(); }
+
+    function start() {
+      audioOn(); playing = true; $('#play').textContent = '■';
+      next = Snd.now() + 0.08; beat = 0; sub = 0; queue = [];
+      timer = setInterval(schedule, 25);
+      raf(() => {
+        if (!playing) return false;
+        const t = Snd.ctx.currentTime;
+        while (queue.length > 1 && queue[1].t <= t) queue.shift();
+        const cur = queue.length && queue[0].t <= t ? queue[0].b : -1;
+        $$('.mbeat').forEach((el, i) => el.classList.toggle('now', i === cur));
+      });
+    }
+    function schedule() {
+      const spb = 60 / m.bpm, k = SUBS[m.sub][0];
+      while (next < Snd.ctx.currentTime + 0.12) {
+        const lv = m.lv[beat] || 0;
+        if (sub === 0) { if (lv) Snd.tick(next, lv); queue.push({ t: next, b: beat }); }
+        else if (lv) Snd.tick(next, 0.5);
+        next += spb / k;
+        if (++sub >= k) { sub = 0; beat = (beat + 1) % m.lv.length; }
+      }
+    }
+    function stop() { playing = false; clearInterval(timer); const b = $('#play'); if (b) b.textContent = '▶'; $$('.mbeat').forEach(el => el.classList.remove('now')); }
+    onLeave(() => { playing = false; clearInterval(timer); });
+    render();
+  }
+
+  // ===================== ТЮНЕР =====================
+  const FORK = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 2v8a3 3 0 0 0 6 0V2"/><path d="M12 13v9"/></svg>';
+  const STRINGS = [[40, '6'], [45, '5'], [50, '4'], [55, '3'], [59, '2'], [64, '1']];
+  function viewTuner() {
+    const ui = store.ui; ui.a4 = ui.a4 || 440;
+    let hist = [], shown = null, lastSeen = 0;
+    app.innerHTML = `
+      ${top('Тюнер', '#/practice')}
+      <div class="tuner">
+        <div class="tnote" id="tn"><span id="tl">–</span><sup id="ta"></sup><sub id="to"></sub></div>
+        <div class="tscale"><div class="tticks">${Array.from({ length: 21 }, (_, i) => `<i class="${i === 10 ? 'c' : i % 5 === 0 ? 'l' : ''}"></i>`).join('')}</div><div class="tneedle" id="needle"></div></div>
+        <div class="tinfo"><span id="tc">&nbsp;</span><span id="thz" class="muted">&nbsp;</span></div>
+        <div class="tstr" id="tstr">${STRINGS.map(([mm, n]) => `<span data-m="${mm}">${n}<b>${P(M.pcName(mm % 12))}</b></span>`).join('')}</div>
+        <div id="tmsg" class="small muted" style="text-align:center;margin-top:14px">Нажмите «Включить» и сыграйте одну струну.</div>
+        <button class="btn wide big" id="go" style="margin-top:14px">🎤 Включить</button>
+        <div class="row" style="justify-content:center;margin-top:16px"><button class="icon-btn" id="am">−</button><span class="small">Ля = <b id="a4">${ui.a4}</b> Гц</span><button class="icon-btn" id="ap">+</button></div>
+      </div>`;
+    bindBack();
+    const setA = d => { ui.a4 = Math.max(430, Math.min(450, ui.a4 + d)); $('#a4').textContent = ui.a4; save(); };
+    $('#am').onclick = () => setA(-1); $('#ap').onclick = () => setA(1);
+    $('#go').onclick = async () => {
+      audioOn();
+      try {
+        try { if (navigator.audioSession) navigator.audioSession.type = 'play-and-record'; } catch (e) {}
+        await Snd.micStart();
+      } catch (e) { $('#tmsg').textContent = 'Нет доступа к микрофону. Разрешите его в настройках браузера.'; return; }
+      $('#go').remove(); $('#tmsg').textContent = 'Сыграйте одну струну и дайте ей звучать.';
+      onLeave(() => Snd.micStop());
+      raf(() => {
+        const p = Snd.detectPitch(), now = performance.now();
+        if (p && p.f > 60 && p.f < 1400 && p.rms > 0.01) {
+          hist.push(p.f); if (hist.length > 7) hist.shift();
+          lastSeen = now;
+        } else if (now - lastSeen > 1200) { hist = []; }
+        if (!hist.length) { if (shown !== null) { shown = null; $('#tn').classList.add('idle'); } return; }
+        const f = hist.slice().sort((a, b) => a - b)[hist.length >> 1];
+        const midiF = 69 + 12 * Math.log2(f / ui.a4), mi = Math.round(midiF), cents = Math.round((midiF - mi) * 100);
+        shown = mi;
+        const name = M.pcName(((mi % 12) + 12) % 12);
+        $('#tn').classList.remove('idle');
+        $('#tl').textContent = name[0]; $('#ta').textContent = name.length > 1 ? (name[1] === '#' ? '♯' : '♭') : ''; $('#to').textContent = Math.floor(mi / 12) - 1;
+        const ok = Math.abs(cents) <= 5;
+        const nd = $('#needle'); nd.style.left = (50 + Math.max(-50, Math.min(50, cents))) + '%'; nd.classList.toggle('ok', ok);
+        $('#tn').classList.toggle('ok', ok);
+        $('#tc').textContent = ok ? '✓ точно' : (cents > 0 ? '+' : '') + cents + ' центов ' + (cents > 0 ? '(выше)' : '(ниже)');
+        $('#thz').textContent = f.toFixed(1) + ' Гц';
+        const near = STRINGS.reduce((a, s) => Math.abs(s[0] - midiF) < Math.abs(a[0] - midiF) ? s : a);
+        $$('#tstr span').forEach(el => el.classList.toggle('on', +el.dataset.m === near[0] && Math.abs(near[0] - midiF) < 1.5));
+      });
+    };
   }
 
   // ===================== УПРАЖНЕНИЕ: ПОВТОРИ ЗА МНОЙ =====================
@@ -861,14 +1012,14 @@
   };
 
   // ===================== МАРШРУТИЗАЦИЯ =====================
-  const TAB = { practice: 'practice', repeat: 'practice', backing: 'practice', ear: 'practice', dq: 'practice', fq: 'practice', chords: 'chords', licks: 'licks', lick: 'licks', theory: 'theory', t: 'theory' };
+  const TAB = { practice: 'practice', metro: 'practice', tuner: 'practice', repeat: 'practice', backing: 'practice', ear: 'practice', dq: 'practice', fq: 'practice', chords: 'chords', licks: 'licks', lick: 'licks', theory: 'theory', t: 'theory' };
   function route() {
     leave();
     const [name, arg] = (location.hash.replace(/^#\/?/, '') || 'practice').split('/');
     document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.tab === (TAB[name] || 'practice')));
     window.scrollTo(0, 0);
     ({
-      practice: viewPractice, chords: viewChords, licks: viewLicks, lick: () => viewLick(arg), repeat: () => viewRepeat(arg),
+      practice: viewPractice, metro: viewMetro, tuner: viewTuner, chords: viewChords, licks: viewLicks, lick: () => viewLick(arg), repeat: () => viewRepeat(arg),
       backing: viewBacking, ear: viewEar, dq: viewDiagramQuiz, fq: viewFormulaQuiz, theory: viewTheory, t: () => viewArticle(arg)
     }[name] || viewPractice)();
   }
