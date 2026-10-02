@@ -205,6 +205,126 @@ export class DemucsProcessor {
     return this.session;
   }
 
+  /**
+   * Run the model on one segment of TRAINING_SAMPLES samples.
+   * Returns per-track { left, right } Float32Arrays (track order as in TRACKS).
+   */
+  async _inferSegment(segLeft, segRight) {
+    const input = prepareModelInput(segLeft, segRight);
+
+    const feeds = {};
+    feeds[this.session.inputNames[0]] = new this.ort.Tensor('float32', input.waveform, [1, 2, TRAINING_SAMPLES]);
+    if (this.session.inputNames.length > 1) {
+      feeds[this.session.inputNames[1]] = new this.ort.Tensor('float32', input.magSpec, [1, 4, MODEL_SPEC_BINS, MODEL_SPEC_FRAMES]);
+    }
+
+    const inferResults = await this.session.run(feeds);
+
+    let timeTensor = null, freqTensor = null;
+    for (const name of this.session.outputNames) {
+      const tensor = inferResults[name];
+      if (tensor.dims.length === 4 && tensor.dims[2] === 2) timeTensor = tensor;
+      else if (tensor.dims.length === 5 && tensor.dims[2] === 4) freqTensor = tensor;
+      else tensor.dispose?.();
+    }
+    if (!timeTensor) throw new Error('Could not find time-domain output tensor');
+
+    const timeData = timeTensor.data;
+    const [, numTracks, numChannels, samples] = timeTensor.dims;
+    const trackSpecs = freqTensor ? standaloneMask(freqTensor.data) : null;
+    freqTensor?.dispose?.();
+
+    const out = [];
+    for (let t = 0; t < numTracks; t++) {
+      const left = new Float32Array(samples);
+      const right = new Float32Array(samples);
+      left.set(timeData.subarray(t * numChannels * samples, t * numChannels * samples + samples));
+      right.set(timeData.subarray((t * numChannels + 1) * samples, (t * numChannels + 1) * samples + samples));
+      if (trackSpecs) {
+        const freqOutput = standaloneIspec(trackSpecs[t], TRAINING_SAMPLES);
+        trackSpecs[t] = null;
+        for (let i = 0; i < samples; i++) {
+          left[i] += freqOutput.left[i] || 0;
+          right[i] += freqOutput.right[i] || 0;
+        }
+      }
+      out.push({ left, right });
+    }
+    timeTensor.dispose?.();
+    return out;
+  }
+
+  /**
+   * Memory-lean separation: overlap-add happens in a window of one segment,
+   * finished samples go straight to 16-bit PCM. Memory does not grow with
+   * a float copy of every stem, which matters on phones.
+   * Returns { drums, bass, other, vocals }: Int16Array(2 * n), left then right.
+   */
+  async separateInt16(leftChannel, rightChannel) {
+    if (!this.session) {
+      throw new Error('Model not loaded. Call loadModel() first.');
+    }
+
+    const totalSamples = leftChannel.length;
+    const L = TRAINING_SAMPLES;
+    const stride = Math.floor(L * (1 - SEGMENT_OVERLAP));
+    const numSegments = Math.ceil((totalSamples - L) / stride) + 1;
+
+    const pcm = TRACKS.map(() => new Int16Array(totalSamples * 2));
+    const acc = TRACKS.map(() => ({ left: new Float32Array(L), right: new Float32Array(L) }));
+    const weights = new Float32Array(L);
+    const segLeft = new Float32Array(L);
+    const segRight = new Float32Array(L);
+    const toI16 = (v) => (v < -1 ? -1 : v > 1 ? 1 : v) * 32767;
+
+    let segmentIdx = 0;
+    for (let start = 0; start < totalSamples; start += stride) {
+      const segmentLength = Math.min(start + L, totalSamples) - start;
+      segLeft.fill(0); segRight.fill(0);
+      segLeft.set(leftChannel.subarray(start, start + segmentLength));
+      segRight.set(rightChannel.subarray(start, start + segmentLength));
+
+      const tracks = await this._inferSegment(segLeft, segRight);
+
+      for (let i = 0; i < segmentLength; i++) {
+        const fadeIn = Math.min(i / (stride * 0.5), 1);
+        const fadeOut = Math.min((segmentLength - i) / (stride * 0.5), 1);
+        const w = Math.min(fadeIn, fadeOut);
+        weights[i] += w;
+        for (let t = 0; t < tracks.length; t++) {
+          acc[t].left[i] += tracks[t].left[i] * w;
+          acc[t].right[i] += tracks[t].right[i] * w;
+        }
+      }
+
+      // Samples before the next segment get no more contributions: finalize them.
+      const done = start + stride >= totalSamples ? totalSamples - start : stride;
+      for (let t = 0; t < TRACKS.length; t++) {
+        const { left, right } = acc[t];
+        const out = pcm[t];
+        for (let i = 0; i < done; i++) {
+          const w = weights[i] > 0 ? weights[i] : 1;
+          out[start + i] = toI16(left[i] / w);
+          out[totalSamples + start + i] = toI16(right[i] / w);
+        }
+        left.copyWithin(0, stride); left.fill(0, L - stride);
+        right.copyWithin(0, stride); right.fill(0, L - stride);
+      }
+      weights.copyWithin(0, stride); weights.fill(0, L - stride);
+
+      segmentIdx++;
+      this.onProgress({
+        progress: segmentIdx / numSegments,
+        currentSegment: segmentIdx,
+        totalSegments: numSegments
+      });
+    }
+
+    const result = {};
+    TRACKS.forEach((key, t) => { result[key] = pcm[t]; });
+    return result;
+  }
+
   async separate(leftChannel, rightChannel) {
     if (!this.session) {
       throw new Error('Model not loaded. Call loadModel() first.');

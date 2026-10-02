@@ -221,6 +221,8 @@ async function renderLibrary() {
 // ---------- Добавление песни и разделение ----------
 let worker = null;
 
+const JOB_KEY = 'minus:job';
+let jobSavedAt = 0;
 function setProc({ status, pct, meta }) {
   if (status != null) $('procStatus').textContent = status;
   if (pct != null) {
@@ -228,8 +230,18 @@ function setProc({ status, pct, meta }) {
     $('procBar').setAttribute('aria-valuenow', Math.round(pct));
   }
   if (meta != null) $('procMeta').textContent = meta;
+  // Если система закроет страницу (обычно от нехватки памяти), при следующем
+  // запуске покажем, на каком этапе это случилось.
+  const now = Date.now();
+  if (status == null && now - jobSavedAt < 500) return;
+  jobSavedAt = now;
+  try {
+    localStorage.setItem(JOB_KEY, $('procStatus').textContent + ($('procMeta').textContent ? ' (' + $('procMeta').textContent + ')' : ''));
+  } catch {}
 }
 function closeProc() {
+  jobSavedAt = 0;
+  try { localStorage.removeItem(JOB_KEY); } catch {}
   $('processing').hidden = true;
   if (worker) { worker.terminate(); worker = null; }
   releaseWake();
@@ -298,7 +310,9 @@ async function addSong(file) {
       }
       closeProc();
       await renderLibrary();
-      openSong(meta, m.stems);
+      try { localStorage.setItem(JOB_KEY, 'Открываю дорожки в плеере'); } catch {}
+      await openSong(meta, m.stems);
+      try { localStorage.removeItem(JOB_KEY); } catch {}
     } else if (m.type === 'error') {
       closeProc();
       toast(phase === 'download' ? 'Ошибка: ' + m.message : 'Не удалось разделить трек: ' + m.message, 6000);
@@ -580,3 +594,11 @@ $('iosHint').hidden = !(isIos && !standalone);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 
 renderLibrary();
+
+try {
+  const lastJob = localStorage.getItem(JOB_KEY);
+  if (lastJob) {
+    localStorage.removeItem(JOB_KEY);
+    toast('Прошлая обработка прервалась на этапе: ' + lastJob + '. Скорее всего, устройству не хватило памяти.', 12000);
+  }
+} catch {}

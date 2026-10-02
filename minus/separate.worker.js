@@ -1,6 +1,6 @@
 // Воркер: скачивает модель HTDemucs (один раз, кэш), разделяет трек на 4 стема.
 import * as ort from './vendor/ort/ort.webgpu.min.mjs';
-import { DemucsProcessor } from './vendor/demucs/index.js';
+import { DemucsProcessor } from './vendor/demucs/processor.js?v=3';
 
 ort.env.wasm.wasmPaths = new URL('./vendor/ort/', import.meta.url).href;
 // Без cross-origin isolation (GitHub Pages) потоки WASM недоступны.
@@ -11,54 +11,49 @@ ort.env.wasm.numThreads = self.crossOriginIsolated
 const MODEL_CACHE = 'stem-model-v1';
 const post = (msg, transfer) => self.postMessage(msg, transfer || []);
 
+// Тело ответа с отчетом о скачанных байтах.
+function withProgress(res) {
+  const total = Number(res.headers.get('Content-Length')) || 0;
+  let loaded = 0;
+  return res.body.pipeThrough(new TransformStream({
+    transform(chunk, ctrl) {
+      loaded += chunk.length;
+      post({ type: 'download', loaded, total });
+      ctrl.enqueue(chunk);
+    },
+  }));
+}
+
+// Модель держим в памяти в одном экземпляре: на телефоне каждая лишняя копия
+// (172 МБ) может стоить закрытия вкладки системой.
 async function getModel(url) {
   const cache = await caches.open(MODEL_CACHE);
   const hit = await cache.match(url);
   if (hit) {
     post({ type: 'status', text: 'Загружаю модель из памяти устройства…' });
-    return { buffer: await hit.arrayBuffer(), cached: true };
+    return hit.arrayBuffer();
   }
 
   post({ type: 'status', text: 'Скачиваю модель (один раз)…' });
-  const res = await fetch(url);
+  let res = await fetch(url);
   if (!res.ok) throw new Error('Не удалось скачать модель (HTTP ' + res.status + ')');
 
-  const total = Number(res.headers.get('Content-Length')) || 0;
-  const reader = res.body.getReader();
-  let buffer;
-  if (total) {
-    const bytes = new Uint8Array(total);
-    let loaded = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes.set(value, loaded);
-      loaded += value.length;
-      post({ type: 'download', loaded, total });
-    }
-    buffer = bytes.buffer;
-  } else {
-    const chunks = [];
-    let loaded = 0;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-      loaded += value.length;
-      post({ type: 'download', loaded, total: 0 });
-    }
-    const bytes = new Uint8Array(loaded);
-    let off = 0;
-    for (const c of chunks) { bytes.set(c, off); off += c.length; }
-    buffer = bytes.buffer;
-  }
-
+  // Сначала потоком на диск (в кэш), потом читаем оттуда один раз.
   try {
-    await cache.put(url, new Response(buffer.slice(0), { headers: { 'Content-Type': 'application/octet-stream' } }));
+    await cache.put(url, new Response(withProgress(res), { headers: { 'Content-Type': 'application/octet-stream' } }));
+    const saved = await cache.match(url);
+    if (saved) {
+      post({ type: 'status', text: 'Загружаю модель из памяти устройства…' });
+      return saved.arrayBuffer();
+    }
   } catch (e) {
-    // Не хватило места для кэша: работаем без него.
+    // Нет места или браузер не умеет сохранять поток: скачаем прямо в память.
+    await cache.delete(url).catch(() => {});
   }
-  return { buffer, cached: false };
+  post({ type: 'status', text: 'Скачиваю модель…' });
+  res = await fetch(url);
+  if (!res.ok) throw new Error('Не удалось скачать модель (HTTP ' + res.status + ')');
+  return new Response(withProgress(res)).arrayBuffer();
 }
 
 async function hasWebGPU() {
@@ -68,19 +63,8 @@ async function hasWebGPU() {
   } catch { return false; }
 }
 
-function toInt16Planar(stem) {
-  const n = stem.left.length;
-  const out = new Int16Array(n * 2);
-  for (let i = 0; i < n; i++) {
-    const l = stem.left[i], r = stem.right[i];
-    out[i] = (l < -1 ? -1 : l > 1 ? 1 : l) * 32767;
-    out[n + i] = (r < -1 ? -1 : r > 1 ? 1 : r) * 32767;
-  }
-  return out;
-}
-
 async function run({ left, right, modelUrl }) {
-  const { buffer } = await getModel(modelUrl);
+  let buffer = await getModel(modelUrl);
 
   let backend = (await hasWebGPU()) ? 'webgpu' : 'wasm';
   let started = 0;
@@ -112,20 +96,13 @@ async function run({ left, right, modelUrl }) {
       throw e;
     }
   }
+  buffer = null; // модель уже внутри ONNX Runtime, копию в JS отпускаем
 
   post({ type: 'status', text: 'Разделяю на вокал, ударные, бас и музыку…' });
   post({ type: 'progress', progress: 0, currentSegment: 0, totalSegments: 0, eta: 0, backend });
   started = performance.now();
-  const result = await processor.separate(left, right);
-
-  const stems = {};
-  const transfer = [];
-  for (const key of ['vocals', 'drums', 'bass', 'other']) {
-    stems[key] = toInt16Planar(result[key]);
-    transfer.push(stems[key].buffer);
-    delete result[key];
-  }
-  post({ type: 'done', stems, backend }, transfer);
+  const stems = await processor.separateInt16(left, right);
+  post({ type: 'done', stems, backend }, Object.values(stems).map((a) => a.buffer));
 }
 
 self.onmessage = async (e) => {
