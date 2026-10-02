@@ -95,9 +95,14 @@
         if (d[t] < 0.15) { while (t + 1 <= tauMax && d[t + 1] < d[t]) t++; tau = t; break; }
       }
       if (tau < 0) {
+        // Нет явного провала: берём самый короткий период из почти лучших,
+        // иначе голос «проваливается» на октаву вниз (кратный период).
         let best = tauMin;
         for (let t = tauMin + 1; t <= tauMax; t++) if (d[t] < d[best]) best = t;
         tau = best;
+        for (let t = tauMin + 1; t < best; t++) {
+          if (d[t] < d[t - 1] && d[t] <= d[t + 1] && d[t] < d[best] + 0.1) { tau = t; break; }
+        }
       }
       // Уточняем минимум параболой.
       let tt = tau;
@@ -137,7 +142,7 @@
     }
     const out = medianFilter(m, 2);
     for (let i = 0; i < n; i++) if (Number.isNaN(m[i])) out[i] = NaN;
-    return { midi: out, db: p.db, frameTime: p.frameTime, t0: p.t0, gate };
+    return { midi: out, db: p.db, frameTime: p.frameTime, t0: p.t0, gate, loud };
   }
 
   function removeShortRuns(m, minLen) {
@@ -177,14 +182,21 @@
         if (Number.isNaN(m[i])) continue;
         cs += Math.cos(2 * Math.PI * m[i]); sn += Math.sin(2 * Math.PI * m[i]); cnt++;
       }
-      if (cnt >= 30) { centers.push(Math.min(c, n - 1)); offs.push(Math.atan2(sn, cs) / (2 * Math.PI)); }
+      if (cnt >= 150 && c < n) { centers.push(c); offs.push(Math.atan2(sn, cs) / (2 * Math.PI)); }
     }
     const out = new Float32Array(n);
     if (!offs.length) return out;
     for (let k = 1; k < offs.length; k++) {          // без скачков через ±0,5
       while (offs[k] - offs[k - 1] > 0.5) offs[k] -= 1;
       while (offs[k] - offs[k - 1] < -0.5) offs[k] += 1;
+      // Строй уходит медленно: не больше 0,08 полутона в секунду.
+      const lim = 0.08 * (centers[k] - centers[k - 1]) * frameTime;
+      offs[k] = clamp(offs[k], offs[k - 1] - lim, offs[k - 1] + lim);
     }
+    // Шум (призвуки, подпевки) может накопить «уход» больше полутона — возвращаем
+    // середину в пределы ±0,5, иначе все ноты сдвинутся на полутон.
+    const shift = Math.round(median(offs));
+    for (let k = 0; k < offs.length; k++) offs[k] -= shift;
     let k = 0;
     for (let i = 0; i < n; i++) {
       while (k < centers.length - 1 && centers[k + 1] <= i) k++;
@@ -240,6 +252,7 @@
       };
     }).filter((x) => !Number.isNaN(x.pitch));
 
+    notes = cleanNotes(notes, track.loud);
     if (opts.tune !== false) diatonicTune(notes);
 
     // Соседние куски одной высоты без новой атаки — одна нота.
@@ -253,6 +266,29 @@
     notes = merged.filter((x) => x.end - x.start >= minLen * 0.75);
     notes.forEach((x, k) => { x.id = k; x.cents = Math.round((x.pitch - x.midi) * 100); });
     return notes;
+  }
+
+  // Чистка по контексту (ближайшие ±4 с):
+  // - тихие ноты — призвуки, подпевки, остатки инструментов после разделения;
+  // - нота на октаву (или октаву с квинтой) в стороне от обеих соседних — ошибка высоты, переносим.
+  function cleanNotes(notes, loud) {
+    const W = 4;
+    const near = (x) => notes.filter((y) => y !== x && y.end > x.start - W && y.start < x.end + W);
+    const keep = notes.filter((x) => {
+      if (Number.isFinite(loud) && x.peak < loud - 28) return false;
+      const ctx = near(x);
+      const localMax = Math.max(-Infinity, ...ctx.map((y) => y.peak));
+      return !(ctx.length >= 3 && x.peak < localMax - 25);
+    });
+    keep.forEach((x, i) => {
+      const a = keep[i - 1], b = keep[i + 1];
+      if (!a || !b || x.start - a.end > 1.5 || b.start - x.end > 1.5) return;
+      if (Math.abs(x.pitch - a.pitch) < 9.5 || Math.abs(x.pitch - b.pitch) < 9.5) return;
+      for (const sh of [12, -12, 19, -19, 24, -24]) {
+        if (Math.abs(x.pitch + sh - a.pitch) <= 5 && Math.abs(x.pitch + sh - b.pitch) <= 5) { x.pitch += sh; x.midi += sh; break; }
+      }
+    });
+    return keep;
   }
 
   // Голос, который поёт почти на четверть тона мимо, даёт ноты на границе полутонов.
@@ -561,7 +597,7 @@
     const key = opts.key ? keyFromFifths(opts.key.fifths, opts.key.mode) : estimateKey(weighted);
     const pitches = weighted.map((x) => x.midi);
     const med = median(weighted.flatMap((x) => new Array(x.w).fill(x.midi)));
-    const clef = opts.clef || (med >= 59 ? 'treble' : med >= 47 ? 'treble-8' : 'bass');
+    const clef = opts.clef || chooseClef(weighted);
     const range = { low: Math.min(...pitches), high: Math.max(...pitches) };
     return finish(events, { meter, mi, bpm, step, pickup, key, clef, range });
   }
@@ -598,6 +634,26 @@
       return q.reduce((s, p, k) => s + (raw[k] - p) ** 2 + (p % 2 ? 0.3 : 0), 0);
     };
     return cost(1) < cost(2) ? 1 : 2;
+  }
+
+  // Ключ, при котором меньше всего добавочных линеек (с учётом длительности нот).
+  const STEP_IDX = { C: 0, D: 1, E: 2, F: 3, G: 4, A: 5, B: 6 };
+  function chooseClef(items) {
+    const staff = { treble: [30, 38], 'treble-8': [23, 31], bass: [18, 26] }; // линии E4–F5, E3–F4, G2–A3
+    // Скрипичный привычнее: другой ключ — только если линеек заметно меньше.
+    const total = items.reduce((a, x) => a + x.w, 0) || 1;
+    let best = 'treble', bc = Infinity;
+    for (const clef of ['treble', 'treble-8', 'bass']) {
+      const [lo, hi] = staff[clef];
+      let cost = 0;
+      for (const x of items) {
+        const sp = spell(x.midi, 0), d = 7 * sp.octave + STEP_IDX[sp.step];
+        const ledger = d < lo ? Math.floor((lo - d) / 2) : d > hi ? Math.floor((d - hi) / 2) : 0;
+        cost += x.w * ledger * ledger;
+      }
+      if (bc === Infinity || (cost < bc * 0.5 && (bc - cost) / total > 0.3)) { bc = cost; best = clef; }
+    }
+    return best;
   }
 
   function finish(events, info) {
@@ -659,29 +715,45 @@
   const abcAcc = (a) => (a === 1 ? '^' : a === -1 ? '_' : a === 2 ? '^^' : a === -2 ? '__' : '=');
 
   // Возвращает текст ABC и карту «символы → нота», чтобы по щелчку найти ноту.
-  function toABC(score, title = '') {
+  // opts.barText(номер такта) — подпись над началом такта (например, время в записи),
+  // opts.subtitle — строка под названием. Несколько тактов паузы подряд — одна многотактовая пауза.
+  function toABC(score, title = '', opts = {}) {
     const { mi, key, clef } = score;
     const written = clef === 'treble-8' ? 12 : 0;   // abcjs не сдвигает ноты сам
     let abc = 'X:1\n';
     if (title) abc += 'T:' + title.replace(/\n/g, ' ') + '\n';
+    if (opts.subtitle) abc += 'T:' + opts.subtitle.replace(/\n/g, ' ') + '\n';
     abc += `M:${mi.num}/${mi.den}\nL:1/16\nQ:1/4=${Math.round(score.bpm)}\nK:${abcKeyName(key)} clef=${clef}\n`;
     const map = [];
-    score.bars.forEach((bar, bi) => {
+    const bars = score.bars;
+    const isRest = (bar) => bar.length === 1 && bar[0].full;
+    for (let bi = 0; bi < bars.length; bi++) {
+      const bar = bars[bi];
+      const text = opts.barText && opts.barText(bi);
+      if (text) abc += `"^${text.replace(/"/g, '')}"`;
+      if (isRest(bar)) {
+        let k = 1;
+        while (bi + k < bars.length && isRest(bars[bi + k])) k++;
+        abc += k > 1 ? 'Z' + k : 'Z';
+        bi += k - 1;
+        abc += bi === bars.length - 1 ? ' |]' : ' | ';
+        continue;
+      }
       const state = {};
       bar.forEach((pc, k) => {
         if (k > 0 && pc.pos % (mi.compound ? 6 : mi.beatUnits) === 0) abc += ' ';
         if (pc.midi == null) { abc += pc.full ? 'Z' : 'z' + (pc.len === 1 ? '' : pc.len); return; }
-        const s = spell(pc.midi + written, key.fifths);
-        const id = s.step + s.octave;
-        const cur = id in state ? state[id] : keyAlter(s.step, key.fifths);
+        const sp = spell(pc.midi + written, key.fifths);
+        const id = sp.step + sp.octave;
+        const cur = id in state ? state[id] : keyAlter(sp.step, key.fifths);
         let txt = '';
-        if (cur !== s.alter) { txt += abcAcc(s.alter); state[id] = s.alter; }
-        txt += abcPitch(s) + (pc.len === 1 ? '' : pc.len) + (pc.tie ? '-' : '');
+        if (cur !== sp.alter) { txt += abcAcc(sp.alter); state[id] = sp.alter; }
+        txt += abcPitch(sp) + (pc.len === 1 ? '' : pc.len) + (pc.tie ? '-' : '');
         map.push({ start: abc.length, end: abc.length + txt.length, src: pc.src });
         abc += txt;
       });
-      abc += bi === score.bars.length - 1 ? ' |]' : ' | ';
-    });
+      abc += bi === bars.length - 1 ? ' |]' : ' | ';
+    }
     return { abc: abc + '\n', map };
   }
 
