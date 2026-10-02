@@ -273,7 +273,9 @@ async function renderLibrary() {
 let worker = null;
 
 const JOB_KEY = 'minus:job';
-let jobSavedAt = 0;
+// Обработка на видеокарте уже роняла страницу: дальше считаем на процессоре.
+const NO_GPU_KEY = 'minus:noGpu';
+let jobTimer = 0;
 function setProc({ status, pct, meta }) {
   if (status != null) $('procStatus').textContent = status;
   if (pct != null) {
@@ -282,10 +284,14 @@ function setProc({ status, pct, meta }) {
   }
   if (meta != null) $('procMeta').textContent = meta;
   // Если система закроет страницу (обычно от нехватки памяти), при следующем
-  // запуске покажем, на каком этапе это случилось.
-  const now = Date.now();
-  if (status == null && now - jobSavedAt < 500) return;
-  jobSavedAt = now;
+  // запуске покажем, на каком этапе это случилось. Частые обновления (скачивание)
+  // пишем не чаще раза в полсекунды, но последнее состояние не теряем.
+  if (status != null) saveJob();
+  else if (!jobTimer) jobTimer = setTimeout(saveJob, 500);
+}
+function saveJob() {
+  clearTimeout(jobTimer); jobTimer = 0;
+  if ($('processing').hidden) return;
   try {
     localStorage.setItem(JOB_KEY, $('procStatus').textContent + ($('procMeta').textContent ? ' (' + $('procMeta').textContent + ')' : ''));
   } catch {}
@@ -295,8 +301,8 @@ let jobSongId = null;
 function closeProc() {
   if (jobSongId) { deletePcm(jobSongId).catch(() => {}); jobSongId = null; }
   try { localStorage.removeItem(JOB_KEY + ':id'); } catch {}
-  jobSavedAt = 0;
-  try { localStorage.removeItem(JOB_KEY); } catch {}
+  clearTimeout(jobTimer); jobTimer = 0;
+  try { localStorage.removeItem(JOB_KEY); localStorage.removeItem(JOB_KEY + ':backend'); } catch {}
   $('processing').hidden = true;
   if (worker) { worker.terminate(); worker = null; }
   releaseWake();
@@ -347,6 +353,7 @@ function startSeparation(file, decoded, singleThread, songId) {
       setProc({ pct: clamp((m.loaded / total) * 100, 0, 100), meta: (m.loaded / 1048576).toFixed(0) + ' МБ из ' + (total / 1048576).toFixed(0) + ' МБ' });
     } else if (m.type === 'progress') {
       phase = 'separate';
+      try { localStorage.setItem(JOB_KEY + ':backend', m.backend); } catch {}
       const eta = m.eta > 1 ? ' · осталось примерно ' + fmtTime(m.eta) : '';
       setProc({
         pct: m.progress * 100,
@@ -394,7 +401,9 @@ function startSeparation(file, decoded, singleThread, songId) {
   worker.onerror = () => { closeProc(); toast('Ошибка воркера. Возможно, браузер не поддерживает нужные функции.', 6000); };
 
   setProc({ status: 'Готовлю модель…' });
-  worker.postMessage({ left: decoded.left, right: decoded.right, modelUrl: MODEL_URL, singleThread, songId }, [decoded.left.buffer, decoded.right.buffer]);
+  let noGpu = false;
+  try { noGpu = localStorage.getItem(NO_GPU_KEY) === '1'; } catch {}
+  worker.postMessage({ left: decoded.left, right: decoded.right, modelUrl: MODEL_URL, singleThread, songId, noGpu }, [decoded.left.buffer, decoded.right.buffer]);
 }
 
 $('procCancel').onclick = closeProc;
@@ -734,8 +743,15 @@ try {
     }).catch(() => {});
   }
   const lastJob = localStorage.getItem(JOB_KEY);
+  const lastBackend = localStorage.getItem(JOB_KEY + ':backend');
   if (lastJob) {
     localStorage.removeItem(JOB_KEY);
-    toast('Прошлая обработка прервалась на этапе: ' + lastJob + '. Скорее всего, устройству не хватило памяти.', 12000);
+    localStorage.removeItem(JOB_KEY + ':backend');
+    let text = 'Прошлая обработка прервалась на этапе: ' + lastJob + '. Скорее всего, устройству не хватило памяти.';
+    if (lastBackend === 'webgpu') {
+      localStorage.setItem(NO_GPU_KEY, '1');
+      text += ' Это было на видеокарте, дальше буду считать без нее.';
+    }
+    toast(text, 14000);
   }
 } catch {}
