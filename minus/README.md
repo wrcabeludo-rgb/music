@@ -10,7 +10,7 @@
 3. Откройте https://<имя>.github.io/<репозиторий>/ (нужен HTTPS, Pages его дает).
 4. Chrome/Android: меню → «Установить приложение». iPhone: Safari → «Поделиться» → «На экран Домой».
 
-Файл vendor/ort/ort-wasm-simd-threaded.jsep.wasm весит около 28 МБ. Это меньше лимита GitHub (100 МБ на файл).
+Файл vendor/ort/ort-wasm-simd-threaded.asyncify.wasm весит около 27 МБ. Это меньше лимита GitHub (100 МБ на файл).
 
 ## Как это работает
 - Модель (~172 МБ) скачивается с Hugging Face при первой обработке и сохраняется в Cache Storage устройства.
