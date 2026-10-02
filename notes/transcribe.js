@@ -7,7 +7,7 @@
   // ---------- Общее ----------
   const FMIN = 65, FMAX = 1100;         // C2 … C#6: от баса до сопрано
   // Настройки эвристик ритма (подобраны на народных мелодиях, см. tools/bench.js).
-  const P = { tempoCenter: 90, tempoWidth: 0.6, pickBonus: 0.1, wDown: 3, wHalf: 1.5, wBeat: 1, lastMul: 1, tuneShiftCost: 0.3 };
+  const P = { tempoCenter: 90, tempoWidth: 0.8, pickBonus: 0.1, wDown: 3, wHalf: 1.5, wBeat: 1, lastMul: 1, tuneShiftCost: 0.3, tuneLocal: 0.15, keyOut: 3, fallMax: 0.35 };
   const UPQ = 4;                        // единица ритма — шестнадцатая, 4 на четверть
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const mod = (a, n) => ((a % n) + n) % n;
@@ -193,10 +193,15 @@
       const lim = 0.08 * (centers[k] - centers[k - 1]) * frameTime;
       offs[k] = clamp(offs[k], offs[k - 1] - lim, offs[k - 1] + lim);
     }
-    // Шум (призвуки, подпевки) может накопить «уход» больше полутона — возвращаем
-    // середину в пределы ±0,5, иначе все ноты сдвинутся на полутон.
-    const shift = Math.round(median(offs));
-    for (let k = 0; k < offs.length; k++) offs[k] -= shift;
+    // Студийные записи строят по A = 440 и держат строй, а призвуки и подпевки сбивают
+    // местную оценку. Поэтому местный строй отходит от общего не больше чем на 0,15 полутона.
+    let cs = 0, sn = 0;
+    for (let i = 0; i < n; i++) if (!Number.isNaN(m[i])) { cs += Math.cos(2 * Math.PI * m[i]); sn += Math.sin(2 * Math.PI * m[i]); }
+    const g = Math.atan2(sn, cs) / (2 * Math.PI);
+    for (let k = 0; k < offs.length; k++) {
+      offs[k] -= Math.round(offs[k] - g);
+      offs[k] = clamp(offs[k], g - P.tuneLocal, g + P.tuneLocal);
+    }
     let k = 0;
     for (let i = 0; i < n; i++) {
       while (k < centers.length - 1 && centers[k + 1] <= i) k++;
@@ -353,6 +358,8 @@
       if (len < minF) return true;
       // Скольжение: недолго, высота между соседями и без ровного участка.
       const p = segs[i - 1], q = segs[i + 1];
+      // Спад в конце фразы (голос «роняет» ноту) бывает длиннее обычного скольжения.
+      if (p && !q && len < P.fallMax / ft && g.med < p.med - 0.8 && plateau(g) < 0.6) return true;
       if (len >= maxTrans || plateau(g) >= 0.6) return false;
       // Подъезд в начале или спад в конце участка голоса.
       if (!p || !q) return true;
@@ -453,7 +460,7 @@
   const majorFifths = (pc) => { const f = mod(pc * 7, 12); return f > 6 ? f - 12 : f; };
   // К корреляции добавляем: штраф за звуки вне лада (в миноре разрешены VI и VII повышенные)
   // и бонус, если мелодия кончается на тонике.
-  const SCALE_MAJ = [0, 2, 4, 5, 7, 9, 11], SCALE_MIN = [0, 2, 3, 5, 7, 8, 9, 10, 11];
+  const SCALE_MAJ = [0, 2, 4, 5, 7, 9, 11], SCALE_MIN = [0, 2, 3, 5, 7, 8, 10, 11];
   function estimateKey(items) {
     const h = new Array(12).fill(0);
     let total = 0;
@@ -464,7 +471,7 @@
       const rot = (prof) => prof.map((_, i) => prof[mod(i - pc, 12)]);
       const out = (scale) => h.reduce((s, v, i) => s + (scale.includes(mod(i - pc, 12)) ? 0 : v), 0) / (total || 1);
       const bonus = pc === last ? 0.15 : 0;
-      const cM = corr(h, rot(KK_MAJ)) - out(SCALE_MAJ) + bonus, cm = corr(h, rot(KK_MIN)) - out(SCALE_MIN) + bonus;
+      const cM = corr(h, rot(KK_MAJ)) - P.keyOut * out(SCALE_MAJ) + bonus, cm = corr(h, rot(KK_MIN)) - P.keyOut * out(SCALE_MIN) + bonus;
       if (cM > bs) { bs = cM; best = { fifths: majorFifths(pc), mode: 'major', tonic: pc }; }
       // ми-бемоль минор (6♭) пишут чаще, чем ре-диез минор (6♯)
       if (cm > bs) { bs = cm; const f = majorFifths(pc + 3); best = { fifths: f === 6 ? -6 : f, mode: 'minor', tonic: pc }; }

@@ -1,6 +1,6 @@
 // Офлайн-кэш «Ноты из голоса».
 // При изменении файлов приложения увеличивайте CACHE — старый кэш удалится автоматически.
-const CACHE = 'notes-v3';
+const CACHE = 'notes-v4';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'transcribe.js', 'analyze.worker.js', 'vendor/abcjs/abcjs-basic-min.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];
 
