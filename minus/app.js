@@ -275,6 +275,8 @@ let worker = null;
 const JOB_KEY = 'minus:job';
 // Обработка на видеокарте уже роняла страницу: дальше считаем на процессоре.
 const NO_GPU_KEY = 'minus:noGpu';
+// Сколько потоков WASM можно брать: после сбоя по памяти уменьшаем (4 → 2 → 1).
+const MAX_THREADS_KEY = 'minus:maxThreads';
 let jobTimer = 0;
 function setProc({ status, pct, meta }) {
   if (status != null) $('procStatus').textContent = status;
@@ -302,7 +304,7 @@ function closeProc() {
   if (jobSongId) { deletePcm(jobSongId).catch(() => {}); jobSongId = null; }
   try { localStorage.removeItem(JOB_KEY + ':id'); } catch {}
   clearTimeout(jobTimer); jobTimer = 0;
-  try { localStorage.removeItem(JOB_KEY); localStorage.removeItem(JOB_KEY + ':backend'); } catch {}
+  try { for (const k of ['', ':backend', ':threads']) localStorage.removeItem(JOB_KEY + k); } catch {}
   $('processing').hidden = true;
   if (worker) { worker.terminate(); worker = null; }
   releaseWake();
@@ -353,7 +355,7 @@ function startSeparation(file, decoded, singleThread, songId) {
       setProc({ pct: clamp((m.loaded / total) * 100, 0, 100), meta: (m.loaded / 1048576).toFixed(0) + ' МБ из ' + (total / 1048576).toFixed(0) + ' МБ' });
     } else if (m.type === 'progress') {
       phase = 'separate';
-      try { localStorage.setItem(JOB_KEY + ':backend', m.backend); } catch {}
+      try { localStorage.setItem(JOB_KEY + ':backend', m.backend); localStorage.setItem(JOB_KEY + ':threads', m.threads); } catch {}
       const eta = m.eta > 1 ? ' · осталось примерно ' + fmtTime(m.eta) : '';
       setProc({
         pct: m.progress * 100,
@@ -398,12 +400,19 @@ function startSeparation(file, decoded, singleThread, songId) {
       toast(phase === 'download' ? 'Ошибка: ' + m.message : 'Не удалось разделить трек: ' + m.message, 6000);
     }
   };
-  worker.onerror = () => { closeProc(); toast('Ошибка воркера. Возможно, браузер не поддерживает нужные функции.', 6000); };
+  worker.onerror = (e) => {
+    const why = (e && e.message) || '';
+    closeProc();
+    toast('Ошибка воркера' + (why ? ': ' + why : '') + '. Попробуйте еще раз; если повторится, пришлите этот текст.', 10000);
+  };
 
   setProc({ status: 'Готовлю модель…' });
-  let noGpu = false;
-  try { noGpu = localStorage.getItem(NO_GPU_KEY) === '1'; } catch {}
-  worker.postMessage({ left: decoded.left, right: decoded.right, modelUrl: MODEL_URL, singleThread, songId, noGpu }, [decoded.left.buffer, decoded.right.buffer]);
+  let noGpu = false, maxThreads = 4;
+  try {
+    noGpu = localStorage.getItem(NO_GPU_KEY) === '1';
+    maxThreads = Number(localStorage.getItem(MAX_THREADS_KEY)) || 4;
+  } catch {}
+  worker.postMessage({ left: decoded.left, right: decoded.right, modelUrl: MODEL_URL, singleThread, songId, noGpu, maxThreads }, [decoded.left.buffer, decoded.right.buffer]);
 }
 
 $('procCancel').onclick = closeProc;
@@ -744,13 +753,17 @@ try {
   }
   const lastJob = localStorage.getItem(JOB_KEY);
   const lastBackend = localStorage.getItem(JOB_KEY + ':backend');
+  const lastThreads = Number(localStorage.getItem(JOB_KEY + ':threads')) || 0;
   if (lastJob) {
-    localStorage.removeItem(JOB_KEY);
-    localStorage.removeItem(JOB_KEY + ':backend');
+    for (const k of ['', ':backend', ':threads']) localStorage.removeItem(JOB_KEY + k);
     let text = 'Прошлая обработка прервалась на этапе: ' + lastJob + '. Скорее всего, устройству не хватило памяти.';
     if (lastBackend === 'webgpu') {
       localStorage.setItem(NO_GPU_KEY, '1');
       text += ' Это было на видеокарте, дальше буду считать без нее.';
+    } else if (lastBackend === 'wasm' && lastThreads > 1) {
+      const next = Math.max(1, Math.floor(lastThreads / 2));
+      localStorage.setItem(MAX_THREADS_KEY, String(next));
+      text += ' Дальше буду считать в ' + next + (next === 1 ? ' поток' : ' потока') + ': медленнее, но нужно меньше памяти.';
     }
     toast(text, 14000);
   }
