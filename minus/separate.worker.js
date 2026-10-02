@@ -89,10 +89,10 @@ function release(buf) {
   try { const { port1 } = new MessageChannel(); port1.postMessage(null, [buf]); port1.close(); } catch {}
 }
 
-async function run({ left, right, modelUrl, singleThread, songId, noGpu, maxThreads }) {
+async function run({ left, right, modelUrl, singleThread, songId, noGpu }) {
   // Потоки WASM работают только при cross-origin isolation (заголовки ставит sw.js).
   const threads = self.crossOriginIsolated && !singleThread
-    ? Math.max(1, Math.min(maxThreads || 4, self.navigator.hardwareConcurrency || 4))
+    ? Math.max(1, Math.min(4, self.navigator.hardwareConcurrency || 4))
     : 1;
   ort.env.wasm.numThreads = threads;
 
