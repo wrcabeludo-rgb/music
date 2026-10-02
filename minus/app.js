@@ -761,3 +761,163 @@ try {
     toast(text, 14000);
   }
 } catch {}
+
+// ---------- Скачивание микса ----------
+// Микс собирается в OfflineAudioContext теми же средствами, что и при
+// воспроизведении: громкость, Mute/Solo, темп (скорость дорожек) и тон (SoundTouch).
+let exportFormat = 'mp3';
+let exportFile = null;
+let exportWorker = null;
+
+const stemGain = (key) => (engine.isAudible(key) ? faderToGain(engine.stems[key].fader) : 0);
+const pct = (g) => Math.round(g * 100) + '%';
+
+function mixDescription() {
+  const parts = STEMS.filter(({ key }) => stemGain(key) > 0).map(({ key, label }) => label + ' ' + pct(stemGain(key)));
+  if (engine.semitones) parts.push('тон ' + semisLabel(engine.semitones));
+  if (Math.abs(engine.tempo - 1) > 1e-6) parts.push('темп ' + Math.round(engine.tempo * 100) + '%');
+  return parts.join(', ');
+}
+
+function openExport() {
+  if (!engine) return;
+  const ul = $('exportMix');
+  ul.textContent = '';
+  for (const { key, label } of STEMS) {
+    const g = stemGain(key);
+    const li = document.createElement('li');
+    li.className = g > 0 ? '' : 'off';
+    li.innerHTML = '<span></span><b></b>';
+    li.firstChild.textContent = label;
+    li.lastChild.textContent = g > 0 ? pct(g) : 'выключен';
+    ul.append(li);
+  }
+  if (engine.semitones || Math.abs(engine.tempo - 1) > 1e-6) {
+    const li = document.createElement('li');
+    li.innerHTML = '<span>Тон и темп</span><b></b>';
+    li.lastChild.textContent = semisLabel(engine.semitones) + ' · ' + Math.round(engine.tempo * 100) + '%';
+    ul.append(li);
+  }
+  const secs = engine.duration / engine.tempo;
+  $('sizeMp3').textContent = Math.max(1, Math.round(secs * 192000 / 8 / 1048576));
+  $('sizeWav').textContent = Math.max(1, Math.round(secs * SAMPLE_RATE * 4 / 1048576));
+  exportFile = null;
+  $('exportProgress').hidden = true;
+  $('exportGo').hidden = false; $('exportGo').disabled = !STEMS.some(({ key }) => stemGain(key) > 0);
+  $('exportSave').hidden = true;
+  $('exportSheet').hidden = false;
+}
+
+function closeExport() {
+  exportWorker?.terminate(); exportWorker = null;
+  exportFile = null;
+  $('exportSheet').hidden = true;
+}
+
+function exportProgress(text, p) {
+  $('exportProgress').hidden = false;
+  $('exportStatus').textContent = text;
+  $('exportFill').style.width = Math.round(p * 100) + '%';
+}
+
+async function renderMix() {
+  const tempo = engine.tempo;
+  const pitch = Math.pow(2, engine.semitones / 12) / tempo;
+  const shift = Math.abs(pitch - 1) > 1e-4;
+  const n = Math.round(engine.duration * SAMPLE_RATE);
+  // Сдвиг тона дает небольшую задержку: добавляем хвост, чтобы конец не обрезался.
+  const length = Math.ceil(n / tempo) + (shift ? SAMPLE_RATE / 2 : 0);
+  const ctx = new OfflineAudioContext(2, length, SAMPLE_RATE);
+  let out = ctx.destination;
+  if (shift) {
+    await ctx.audioWorklet.addModule(new URL('./pitch.worklet.js?v=1', import.meta.url));
+    const node = new AudioWorkletNode(ctx, 'pitch-shift', { outputChannelCount: [2], processorOptions: { pitch } });
+    node.connect(ctx.destination);
+    out = node;
+  }
+  for (const { key } of STEMS) {
+    const g = stemGain(key);
+    if (!g) continue;
+    const src = ctx.createBufferSource();
+    src.buffer = engine.stems[key].buffer;
+    src.playbackRate.value = tempo;
+    const gain = ctx.createGain();
+    gain.gain.value = g;
+    src.connect(gain).connect(out);
+    src.start(0);
+  }
+  const rendered = await ctx.startRendering();
+  const left = rendered.getChannelData(0), right = rendered.getChannelData(1);
+  // Сумма дорожек может выйти за 0 дБ: тогда равномерно приглушаем, без перегруза.
+  let peak = 0;
+  for (let i = 0; i < left.length; i++) { const a = Math.abs(left[i]), b = Math.abs(right[i]); if (a > peak) peak = a; if (b > peak) peak = b; }
+  if (peak > 0.99) {
+    const k = 0.99 / peak;
+    for (let i = 0; i < left.length; i++) { left[i] *= k; right[i] *= k; }
+  }
+  return { left, right };
+}
+
+function fileName(ext) {
+  const name = (currentSong.name + ' (' + mixDescription() + ')').replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return name.slice(0, 150) + '.' + ext;
+}
+
+async function buildExport() {
+  $('exportGo').disabled = true;
+  document.querySelectorAll('.formats .chip').forEach((b) => (b.disabled = true));
+  try {
+    exportProgress('Свожу дорожки…', 0.05);
+    const { left, right } = await renderMix();
+    exportProgress(exportFormat === 'mp3' ? 'Кодирую MP3…' : 'Готовлю WAV…', 0.3);
+    const blob = await new Promise((resolve, reject) => {
+      exportWorker = new Worker(new URL('./export.worker.js', import.meta.url), { type: 'module' });
+      exportWorker.onmessage = (e) => {
+        const m = e.data;
+        if (m.type === 'progress') exportProgress($('exportStatus').textContent, 0.3 + 0.7 * m.progress);
+        else if (m.type === 'done') resolve(m.blob);
+        else reject(new Error(m.message));
+      };
+      exportWorker.onerror = (e) => reject(new Error((e && e.message) || 'ошибка кодировщика'));
+      exportWorker.postMessage({ left, right, sampleRate: SAMPLE_RATE, format: exportFormat, kbps: 192 }, [left.buffer, right.buffer]);
+    });
+    exportWorker.terminate(); exportWorker = null;
+    const ext = exportFormat === 'mp3' ? 'mp3' : 'wav';
+    exportFile = new File([blob], fileName(ext), { type: blob.type });
+    exportProgress('Готово: ' + (blob.size / 1048576).toFixed(1) + ' МБ', 1);
+    $('exportGo').hidden = true;
+    $('exportSave').hidden = false;
+  } catch (err) {
+    exportWorker?.terminate(); exportWorker = null;
+    exportProgress('Не получилось собрать файл: ' + ((err && err.message) || err), 0);
+    $('exportGo').disabled = false;
+  } finally {
+    document.querySelectorAll('.formats .chip').forEach((b) => (b.disabled = false));
+  }
+}
+
+// Отдельная кнопка: «Поделиться» на iPhone требует свежего нажатия.
+async function saveExport() {
+  if (!exportFile) return;
+  if (navigator.canShare?.({ files: [exportFile] })) {
+    try { await navigator.share({ files: [exportFile], title: exportFile.name }); return; }
+    catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const url = URL.createObjectURL(exportFile);
+  const a = document.createElement('a');
+  a.href = url; a.download = exportFile.name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+$('exportBtn').onclick = openExport;
+$('exportClose').onclick = closeExport;
+$('exportGo').onclick = buildExport;
+$('exportSave').onclick = saveExport;
+document.querySelectorAll('.formats .chip').forEach((b) => {
+  b.onclick = () => {
+    exportFormat = b.dataset.format;
+    document.querySelectorAll('.formats .chip').forEach((x) => x.setAttribute('aria-pressed', x === b));
+    if (exportFile) { exportFile = null; $('exportSave').hidden = true; $('exportGo').hidden = false; $('exportGo').disabled = false; $('exportProgress').hidden = true; }
+  };
+});

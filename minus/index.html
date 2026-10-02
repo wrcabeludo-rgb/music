@@ -53,6 +53,9 @@
       <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
     <h2 id="title" class="song-title"></h2>
+    <button id="exportBtn" class="icon" aria-label="Скачать микс">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19.5h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
   </header>
 
   <div class="timeline">
@@ -90,6 +93,28 @@
     <button id="fwd" class="icon round" aria-label="Вперед на 10 секунд">+10</button>
   </div>
 </main>
+
+<!-- Скачивание микса -->
+<div id="exportSheet" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+  <div class="sheet">
+    <h2 id="exportTitle">Скачать микс</h2>
+    <p class="meta">Файл соберется по текущим настройкам плеера:</p>
+    <ul id="exportMix" class="mixlist"></ul>
+    <div class="formats" role="group" aria-label="Формат файла">
+      <button class="chip" data-format="mp3" aria-pressed="true">MP3 · ~<span id="sizeMp3"></span> МБ</button>
+      <button class="chip" data-format="wav" aria-pressed="false">WAV · ~<span id="sizeWav"></span> МБ</button>
+    </div>
+    <div id="exportProgress" hidden>
+      <p id="exportStatus" class="status"></p>
+      <div class="bar"><i id="exportFill"></i></div>
+    </div>
+    <div class="actions">
+      <button id="exportGo" class="primary">Собрать файл</button>
+      <button id="exportSave" class="primary" hidden>Сохранить файл</button>
+      <button id="exportClose" class="ghost">Закрыть</button>
+    </div>
+  </div>
+</div>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
