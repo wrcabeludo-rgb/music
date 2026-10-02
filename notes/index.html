@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#16130f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Ноты">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Записывает спетую мелодию нотами: загрузите аудиофайл или спойте в микрофон, получите партитуру, MusicXML и MIDI.">
+  <title>Ноты из голоса</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Начало -->
+<main id="start" class="view">
+  <header class="top">
+    <h1>Ноты из голоса</h1>
+    <button id="installBtn" class="ghost" hidden>Установить</button>
+  </header>
+
+  <p class="lead">Загрузите запись одноголосной вокальной партии или спойте мелодию в микрофон. Приложение определит высоту и длительность нот, темп, размер и тональность и запишет мелодию нотами.</p>
+
+  <label class="primary" for="file">Выбрать аудиофайл</label>
+  <input id="file" type="file" accept="audio/*,video/*,.mp3,.wav,.m4a,.flac,.ogg,.aac,.webm" hidden>
+  <button id="recBtn" class="secondary">Спеть в микрофон</button>
+
+  <ul class="tips">
+    <li>Лучше всего распознаётся чистый голос без аккомпанемента, эха и шума.</li>
+    <li>Если в записи есть музыка, сначала отделите вокал, например в приложении <a href="../minus/">«Минус»</a>.</li>
+    <li>Пойте на слоги («та», «ля») или со словами: каждый новый слог — новая нота.</li>
+    <li>Всё считается на вашем устройстве, запись никуда не отправляется.</li>
+  </ul>
+
+  <p id="iosHint" class="hint" hidden>Чтобы установить на iPhone: «Поделиться» → «На экран Домой».</p>
+</main>
+
+<!-- Запись с микрофона -->
+<div id="recorder" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="recTitle">
+  <div class="sheet">
+    <h2 id="recTitle">Запись</h2>
+    <p class="status"><span id="recTime">0:00</span> <span id="recNote" class="rec-note"></span></p>
+    <div class="bar"><i id="recLevel"></i></div>
+    <p class="meta">Пойте ровно, в своём темпе. Когда закончите, нажмите «Готово».</p>
+    <div class="row">
+      <button id="recStop" class="primary small">Готово</button>
+      <button id="recCancel" class="ghost">Отменить</button>
+    </div>
+  </div>
+</div>
+
+<!-- Обработка -->
+<div id="processing" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="procTitle">
+  <div class="sheet">
+    <h2 id="procTitle">Распознаю мелодию</h2>
+    <p id="procStatus" class="status">Читаю файл…</p>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="procBar"><i id="procFill"></i></div>
+    <button id="procCancel" class="ghost">Отменить</button>
+  </div>
+</div>
+
+<!-- Результат -->
+<main id="result" class="view wide" hidden>
+  <header class="top">
+    <button id="back" class="icon" aria-label="Другая запись">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <input id="title" class="title-input" aria-label="Название" maxlength="80">
+  </header>
+
+  <p id="summary" class="summary"></p>
+
+  <div class="paper">
+    <div id="score" aria-label="Ноты"></div>
+    <p id="noNotes" class="empty" hidden>В записи не нашлось нот. Проверьте, что голос хорошо слышен, и попробуйте ещё раз.</p>
+  </div>
+
+  <!-- Правка выбранной ноты -->
+  <div id="editor" class="editor" hidden>
+    <p id="selInfo" class="sel-info"></p>
+    <div class="edit-grid">
+      <button id="eDown" class="chip">Ниже ½</button>
+      <button id="eUp" class="chip">Выше ½</button>
+      <button id="eOctDown" class="chip">Октава ↓</button>
+      <button id="eOctUp" class="chip">Октава ↑</button>
+      <button id="eDel" class="chip danger">Удалить</button>
+      <button id="eDone" class="chip">Готово</button>
+    </div>
+  </div>
+  <p class="hint small">Нажмите на ноту, чтобы услышать и исправить её.</p>
+
+  <div class="transport">
+    <button id="playScore" class="pill">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+      <span>Ноты</span>
+    </button>
+    <button id="playCompare" class="pill">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z" fill="currentColor"/></svg>
+      <span>Запись + ноты</span>
+    </button>
+    <button id="undo" class="pill ghosted" disabled>Отменить правку</button>
+  </div>
+
+  <section class="panel" aria-labelledby="setTitle">
+    <h3 id="setTitle">Как записать</h3>
+
+    <div class="field">
+      <span class="lbl">Темп</span>
+      <div class="stepper" role="group" aria-label="Темп">
+        <button id="bpmDown" class="st-btn" aria-label="Медленнее">−</button>
+        <span id="bpmVal" class="st-val">100</span>
+        <button id="bpmUp" class="st-btn" aria-label="Быстрее">+</button>
+      </div>
+      <button id="bpmHalf" class="chip mini" aria-label="Темп вдвое медленнее">÷2</button>
+      <button id="bpmDouble" class="chip mini" aria-label="Темп вдвое быстрее">×2</button>
+      <button id="bpmAuto" class="chip mini">Авто</button>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Размер</span>
+      <div class="seg" id="meter" role="radiogroup" aria-label="Размер">
+        <button data-v="2/4" role="radio">2/4</button>
+        <button data-v="3/4" role="radio">3/4</button>
+        <button data-v="4/4" role="radio">4/4</button>
+        <button data-v="6/8" role="radio">6/8</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Точность</span>
+      <div class="seg" id="step" role="radiogroup" aria-label="Самая короткая длительность">
+        <button data-v="2" role="radio">Восьмые</button>
+        <button data-v="1" role="radio">Шестнадцатые</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Затакт</span>
+      <div class="stepper" role="group" aria-label="Затакт">
+        <button id="pickDown" class="st-btn" aria-label="Короче">−</button>
+        <span id="pickVal" class="st-val wide">нет</span>
+        <button id="pickUp" class="st-btn" aria-label="Длиннее">+</button>
+      </div>
+      <button id="pickAuto" class="chip mini">Авто</button>
+    </div>
+
+    <div class="field">
+      <label class="lbl" for="key">Тональность</label>
+      <select id="key"></select>
+    </div>
+
+    <div class="field">
+      <label class="lbl" for="clef">Ключ</label>
+      <select id="clef">
+        <option value="auto">Авто</option>
+        <option value="treble">Скрипичный</option>
+        <option value="treble-8">Скрипичный, октавой ниже (тенор)</option>
+        <option value="bass">Басовый</option>
+      </select>
+    </div>
+
+    <div class="field">
+      <span class="lbl">Тон</span>
+      <div class="stepper" role="group" aria-label="Транспонировать">
+        <button id="trDown" class="st-btn" aria-label="Ниже на полтона">−</button>
+        <span id="trVal" class="st-val">0</span>
+        <button id="trUp" class="st-btn" aria-label="Выше на полтона">+</button>
+      </div>
+      <span class="unit">полутонов</span>
+    </div>
+
+    <label class="check">
+      <input id="tune" type="checkbox" checked>
+      <span>Подстроиться под голос (если поют выше или ниже строя или «уплывают»)</span>
+    </label>
+  </section>
+
+  <section class="panel" aria-labelledby="rollTitle">
+    <h3 id="rollTitle">Что услышано</h3>
+    <p class="hint small">Серая линия — высота голоса, полосы — найденные ноты.</p>
+    <div class="roll" id="rollWrap"><canvas id="roll"></canvas></div>
+  </section>
+
+  <section class="panel" aria-labelledby="expTitle">
+    <h3 id="expTitle">Сохранить</h3>
+    <div class="export">
+      <button id="expXml" class="chip">MusicXML</button>
+      <button id="expMidi" class="chip">MIDI</button>
+      <button id="expAbc" class="chip">ABC</button>
+      <button id="expPrint" class="chip">Печать / PDF</button>
+    </div>
+    <p class="hint small">MusicXML открывается в MuseScore, Finale, Sibelius, Dorico; там ноты можно доработать.</p>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="vendor/abcjs/abcjs-basic-min.js"></script>
+<script src="transcribe.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
