@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#141A2E">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Минус">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Минус — репетиция по стемам</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Библиотека -->
+<main id="library" class="view">
+  <header class="top">
+    <h1>Минус</h1>
+    <button id="installBtn" class="ghost" hidden>Установить</button>
+  </header>
+
+  <p class="lead">Загрузите аудиофайл, и приложение разделит его на вокал, ударные, бас и музыку прямо на вашем устройстве. Дальше у каждой дорожки свой регулятор громкости.</p>
+
+  <label class="primary add" for="file">Добавить песню</label>
+  <input id="file" type="file" accept="audio/*,.mp3,.wav,.m4a,.flac,.ogg" hidden>
+
+  <ul id="songs" class="songs" aria-label="Мои песни"></ul>
+  <p id="empty" class="empty">Здесь появятся ваши песни. Подойдут файлы mp3, wav, m4a и flac, которые у вас есть. Из стриминговых сервисов (Spotify, Apple Music, YouTube) звук получить нельзя: он защищен.</p>
+
+  <p id="iosHint" class="hint" hidden>Чтобы установить на iPhone: «Поделиться» → «На экран Домой».</p>
+</main>
+
+<!-- Обработка -->
+<div id="processing" class="overlay" hidden role="dialog" aria-modal="true" aria-labelledby="procTitle">
+  <div class="sheet">
+    <h2 id="procTitle">Разделяем на дорожки</h2>
+    <p id="procStatus" class="status">Читаю файл…</p>
+    <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="procBar"><i id="procFill"></i></div>
+    <p id="procMeta" class="meta"></p>
+    <p class="meta">Не закрывайте вкладку и не блокируйте экран. Первый запуск скачивает модель (около 170 МБ), потом она хранится на устройстве.</p>
+    <button id="procCancel" class="ghost">Отменить</button>
+  </div>
+</div>
+
+<!-- Плеер -->
+<main id="player" class="view" hidden>
+  <header class="top">
+    <button id="back" class="icon" aria-label="К списку песен">
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <h2 id="title" class="song-title"></h2>
+  </header>
+
+  <div class="timeline">
+    <canvas id="wave" aria-label="Перемотка" role="slider" tabindex="0"></canvas>
+  </div>
+  <div class="times"><span id="cur">0:00</span><span id="loopInfo"></span><span id="dur">0:00</span></div>
+
+  <div class="loopbar" role="group" aria-label="Повтор отрезка">
+    <button id="loopA" class="chip">Точка A</button>
+    <button id="loopB" class="chip">Точка B</button>
+    <button id="loopOn" class="chip" aria-pressed="false" disabled>Повтор</button>
+    <button id="loopClear" class="chip" disabled>Сбросить</button>
+  </div>
+
+  <div id="mixer" class="mixer"></div>
+
+  <div class="transport">
+    <button id="rew" class="icon round" aria-label="Назад на 10 секунд">−10</button>
+    <button id="play" class="play" aria-label="Играть"></button>
+    <button id="fwd" class="icon round" aria-label="Вперед на 10 секунд">+10</button>
+  </div>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>
