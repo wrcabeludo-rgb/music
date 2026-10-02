@@ -897,9 +897,14 @@ async function buildExport() {
 }
 
 // Отдельная кнопка: «Поделиться» на iPhone требует свежего нажатия.
+// Системное «Поделиться» — только на телефонах и планшетах: на компьютере (Chrome в Windows
+// тоже умеет делиться файлами) нужен обычный «Сохранить как» в «Загрузки».
+const isMobile = navigator.userAgentData?.mobile
+  || /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 async function saveExport() {
   if (!exportFile) return;
-  if (navigator.canShare?.({ files: [exportFile] })) {
+  if (isMobile && navigator.canShare?.({ files: [exportFile] })) {
     try { await navigator.share({ files: [exportFile], title: exportFile.name }); return; }
     catch (e) { if (e && e.name === 'AbortError') return; }
   }
