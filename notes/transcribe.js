@@ -6,6 +6,8 @@
 
   // ---------- Общее ----------
   const FMIN = 65, FMAX = 1100;         // C2 … C#6: от баса до сопрано
+  // Настройки эвристик ритма (подобраны на народных мелодиях, см. tools/bench.js).
+  const P = { tempoCenter: 90, tempoWidth: 0.6, pickBonus: 0.1, wDown: 3, wHalf: 1.5, wBeat: 1, lastMul: 1, tuneShiftCost: 0.3 };
   const UPQ = 4;                        // единица ритма — шестнадцатая, 4 на четверть
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const mod = (a, n) => ((a % n) + n) % n;
@@ -220,21 +222,7 @@
       const a = i, b = last + 1;
       i = b;
 
-      // Метки полутонов с гистерезисом.
-      const lab = new Array(b - a);
-      let L = NaN;
-      for (let k = a; k < b; k++) {
-        const v = Number.isNaN(sm[k]) ? NaN : sm[k];
-        if (!Number.isNaN(v) && (Number.isNaN(L) || Math.abs(v - L) > 0.65)) L = Math.round(v);
-        lab[k - a] = L;
-      }
-      for (let k = 0; k < lab.length && Number.isNaN(lab[k]); k++) lab[k] = L; // на всякий случай
-      let rs = [];
-      for (let k = 0; k < lab.length; k++) {
-        if (rs.length && rs[rs.length - 1].label === lab[k]) rs[rs.length - 1].b = a + k + 1;
-        else rs.push({ a: a + k, b: a + k + 1, label: lab[k], attack: k === 0 });
-      }
-      rs = mergeShort(rs, minF, Math.round(0.16 / ft));
+      const rs = segmentRegion(m, sm, a, b, ft, minF);
       for (const r of rs) runs.push(...splitByEnergy(r, dbs, minF, ft));
     }
 
@@ -252,6 +240,8 @@
       };
     }).filter((x) => !Number.isNaN(x.pitch));
 
+    if (opts.tune !== false) diatonicTune(notes);
+
     // Соседние куски одной высоты без новой атаки — одна нота.
     const merged = [];
     for (const x of notes) {
@@ -265,6 +255,24 @@
     return notes;
   }
 
+  // Голос, который поёт почти на четверть тона мимо, даёт ноты на границе полутонов.
+  // Уточняем сдвиг строя так, чтобы больше звучания попадало в один диатонический звукоряд
+  // (простые мелодии в основном диатоничны); далёкий сдвиг немного штрафуется.
+  function diatonicTune(notes) {
+    if (notes.length < 6) return;
+    let best = 0, bs = -Infinity;
+    for (let d = -0.45; d <= 0.4501; d += 0.03) {
+      const h = new Array(12).fill(0);
+      let tot = 0;
+      for (const x of notes) { const w = Math.min(1, x.end - x.start); h[mod(Math.round(x.pitch - d), 12)] += w; tot += w; }
+      let fit = 0;
+      for (let r = 0; r < 12; r++) fit = Math.max(fit, SCALE_MAJ.reduce((a, k) => a + h[(r + k) % 12], 0));
+      const score = fit / tot - P.tuneShiftCost * Math.abs(d);
+      if (score > bs + 1e-9) { bs = score; best = d; }
+    }
+    for (const x of notes) { x.pitch -= best; x.midi = Math.round(x.pitch); x.tuning += best; }
+  }
+
   function smooth(a, r) {
     const out = new Float32Array(a.length);
     for (let i = 0; i < a.length; i++) {
@@ -275,34 +283,76 @@
     return out;
   }
 
-  function mergeShort(rs, minF, abaMax) {
-    rs = rs.map((r) => ({ ...r }));
-    // A-B-A с коротким B на соседней ступени — вибрато или неточность, а не нота.
-    for (let k = 1; k < rs.length - 1; k++) {
-      const A = rs[k - 1], B = rs[k], C = rs[k + 1];
-      if (A.label === C.label && Math.abs(B.label - A.label) <= 1 && B.b - B.a < abaMax && B.b - B.a < Math.min(A.b - A.a, C.b - C.a)) {
-        A.b = C.b; rs.splice(k, 2); k = Math.max(0, k - 2);
+  // Участок голоса → ноты. Граница ставится там, где высота устойчиво (5+ кадров)
+  // ушла больше чем на 0,6 полутона от медианы последних 200 мс текущей ноты.
+  // Короткие куски потом раздаются соседям: скольжение между нотами — по середине
+  // интервала, подъезд в начале — следующей ноте, случайный выброс — ближайшей по высоте.
+  function segmentRegion(m, sm, a, b, ft, minF) {
+    const THR = 0.6, K = 5, WIN = Math.round(0.2 / ft);
+    const cuts = [a];
+    let start = a, dev = 0;
+    for (let k = a; k < b; k++) {
+      const v = sm[k];
+      if (Number.isNaN(v)) continue;
+      const from = Math.max(start, k - dev - WIN), to = k - dev;
+      if (to - from >= 3) {
+        const ref = median(sm.subarray(from, to));
+        if (Math.abs(v - ref) > THR) dev++; else dev = 0;
+        if (dev >= K) { start = k - K + 1; cuts.push(start); dev = 0; }
       }
     }
-    // Короткие куски присоединяем к соседу, близкому по высоте.
+    cuts.push(b);
+    let segs = [];
+    for (let i = 0; i + 1 < cuts.length; i++) if (cuts[i + 1] > cuts[i]) segs.push({ a: cuts[i], b: cuts[i + 1] });
+    const med = (g) => { const v = median(m.subarray(g.a, g.b)); return Number.isNaN(v) ? median(sm.subarray(g.a, g.b)) : v; };
+    const plateau = (g) => {
+      let c = 0, t = 0;
+      for (let k = g.a; k < g.b; k++) if (!Number.isNaN(m[k])) { t++; if (Math.abs(m[k] - g.med) <= 0.3) c++; }
+      return t ? c / t : 0;
+    };
+    segs.forEach((g) => { g.med = med(g); });
+    const maxTrans = Math.round(0.16 / ft);
+    const isShort = (g, i) => {
+      const len = g.b - g.a;
+      if (len < minF) return true;
+      // Скольжение: недолго, высота между соседями и без ровного участка.
+      const p = segs[i - 1], q = segs[i + 1];
+      if (len >= maxTrans || plateau(g) >= 0.6) return false;
+      // Подъезд в начале или спад в конце участка голоса.
+      if (!p || !q) return true;
+      return (g.med - p.med) * (q.med - g.med) > 0;
+    };
     for (;;) {
-      if (rs.length < 2) break;
+      if (segs.length < 2) break;
       let si = -1;
-      for (let k = 0; k < rs.length; k++) if (rs[k].b - rs[k].a < minF && (si < 0 || rs[k].b - rs[k].a < rs[si].b - rs[si].a)) si = k;
+      for (let i = 0; i < segs.length; i++) if (isShort(segs[i], i) && (si < 0 || segs[i].b - segs[i].a < segs[si].b - segs[si].a)) si = i;
       if (si < 0) break;
-      const r = rs[si], p = rs[si - 1], q = rs[si + 1];
-      let to;
-      if (!p) to = q; else if (!q) to = p;
-      else {
-        const dp = Math.abs(p.label - r.label), dq = Math.abs(q.label - r.label);
-        to = dp < dq ? p : dq < dp ? q : (p.b - p.a >= q.b - q.a ? p : q);
+      const g = segs[si], p = segs[si - 1], q = segs[si + 1];
+      if (p && q && (g.med - p.med) * (q.med - g.med) > 0) {
+        // Между нотами: делим по середине интервала.
+        const mid = (p.med + q.med) / 2;
+        let cut = g.a;
+        while (cut < g.b && (Number.isNaN(sm[cut]) || (sm[cut] - mid) * (p.med - mid) > 0)) cut++;
+        p.b = cut; q.a = cut;
+      } else if (!p) { q.a = g.a; }
+      else if (!q) { p.b = g.b; }
+      else if (Math.abs(p.med - g.med) <= Math.abs(q.med - g.med)) p.b = g.b;
+      else q.a = g.a;
+      segs.splice(si, 1);
+      for (const x of [p, q]) if (x) x.med = med(x);
+      // Соседи одной высоты сливаются.
+      for (let i = 1; i < segs.length; i++) {
+        if (Math.round(segs[i].med) === Math.round(segs[i - 1].med)) { segs[i - 1].b = segs[i].b; segs[i - 1].med = med(segs[i - 1]); segs.splice(i, 1); i--; }
       }
-      if (to === p) { p.b = r.b; } else { q.a = r.a; q.attack = q.attack || r.attack; }
-      rs.splice(si, 1);
-      // слияние одинаковых соседей
-      for (let k = 1; k < rs.length; k++) if (rs[k].label === rs[k - 1].label) { rs[k - 1].b = rs[k].b; rs.splice(k, 1); k--; }
     }
-    return rs;
+    // Вибрато: A–B–A с коротким B на соседней ступени — одна нота.
+    for (let i = 1; i + 1 < segs.length; i++) {
+      const A = segs[i - 1], B = segs[i], C = segs[i + 1];
+      if (Math.round(A.med) === Math.round(C.med) && Math.abs(B.med - A.med) < 1.5 && B.b - B.a < maxTrans && plateau(B) < 0.6) {
+        A.b = C.b; A.med = med(A); segs.splice(i, 2); i = Math.max(0, i - 2);
+      }
+    }
+    return segs.map((g, i) => ({ a: g.a, b: g.b, label: Math.round(g.med), attack: i === 0 }));
   }
 
   // Провал громкости на 6+ дБ внутри ноты — новый слог (повтор ноты).
@@ -344,7 +394,7 @@
     };
     const score = (bpm) => {
       const b = 60 / bpm;
-      const prior = Math.exp(-0.5 * Math.pow(Math.log2(bpm / 100) / 0.6, 2));
+      const prior = Math.exp(-0.5 * Math.pow(Math.log2(bpm / P.tempoCenter) / P.tempoWidth, 2));
       return (R(b) + R(b / 2) + 0.5 * R(b / 4)) * prior;
     };
     let best = 100, bs = -1;
@@ -380,7 +430,8 @@
       const bonus = pc === last ? 0.15 : 0;
       const cM = corr(h, rot(KK_MAJ)) - out(SCALE_MAJ) + bonus, cm = corr(h, rot(KK_MIN)) - out(SCALE_MIN) + bonus;
       if (cM > bs) { bs = cM; best = { fifths: majorFifths(pc), mode: 'major', tonic: pc }; }
-      if (cm > bs) { bs = cm; best = { fifths: majorFifths(pc + 3), mode: 'minor', tonic: pc }; }
+      // ми-бемоль минор (6♭) пишут чаще, чем ре-диез минор (6♯)
+      if (cm > bs) { bs = cm; const f = majorFifths(pc + 3); best = { fifths: f === 6 ? -6 : f, mode: 'minor', tonic: pc }; }
     }
     return best;
   }
@@ -400,6 +451,9 @@
     let p = mod(pc * 7, 12);          // 0..11
     let best = null;
     for (const c of [p - 12, p, p + 12]) {
+      // Дубль-диезы и дубль-бемоли — только для ступеней самой тональности.
+      const alt = Math.floor((c + 1) / 7);
+      if (Math.abs(alt) > 1 && !(c >= fifths - 1 && c <= fifths + 5)) continue;
       const dist = Math.abs(c - center);
       if (!best || dist < best.dist || (dist === best.dist && c > best.p)) best = { p: c, dist };
     }
@@ -427,7 +481,7 @@
   }
   function noteNameEn(midi, fifths = 0) {
     const s = spell(midi, fifths);
-    return s.step + (s.alter === 1 ? '♯' : s.alter === -1 ? '♭' : '') + s.octave;
+    return s.step + ({ 1: '♯', '-1': '♭', 2: '𝄪', '-2': '𝄫' }[s.alter] || '') + s.octave;
   }
   function keyNameRu(key) {
     const s = spell(key.tonic + 60, key.fifths);
@@ -465,7 +519,8 @@
     // Концы нот: короткие паузы (вдох, согласная) поглощаются, длинные становятся паузами.
     const beatSec = 60 / bpm * mi.beatUnits / UPQ;
     const ends = notes.map((x, k) => {
-      let e = q[k] + Math.max(step, Math.round((x.end - x.start) / uAt[k] / step) * step);
+      // Перед паузой голос затихает раньше, чем кончается нота: добавляем ~80 мс.
+      let e = q[k] + Math.max(step, Math.round((x.end - x.start + 0.08) / uAt[k] / step) * step);
       if (k + 1 < notes.length) {
         const gap = notes[k + 1].start - x.end;
         if (e >= q[k + 1] || gap < Math.max(0.25, 0.35 * beatSec)) e = q[k + 1];
@@ -479,11 +534,11 @@
       let best = 0, bs = -Infinity;
       const all = ends[ends.length - 1];
       for (let o = 0; o < mi.barUnits; o += Math.min(step, 2)) {
-        let s = o === 0 ? 0.3 * all : 0; // без затакта, если нет явных причин
+        let s = o === 0 ? P.pickBonus * all : 0; // без затакта, если нет явных причин
         q.forEach((p, k) => {
           const pos = mod(p + o, mi.barUnits), len = ends[k] - p;
-          const w = pos === 0 ? 3 : (!mi.compound && mi.num === 4 && pos === 8) ? 1.5 : pos % mi.beatUnits === 0 ? 1 : 0;
-          s += w * Math.min(len, mi.barUnits) * (k === notes.length - 1 ? 2 : 1);
+          const w = pos === 0 ? P.wDown : (!mi.compound && mi.num === 4 && pos === 8) ? P.wHalf : pos % mi.beatUnits === 0 ? P.wBeat : 0;
+          s += w * Math.min(len, mi.barUnits) * (k === notes.length - 1 ? P.lastMul : 1);
         });
         if (s > bs + 1e-9) { bs = s; best = o; }
       }
@@ -533,12 +588,16 @@
     return { q, uAt, raw };
   }
 
-  // Шестнадцатые нужны, если заметная часть нот уверенно начинается между восьмыми.
+  // Шестнадцатые нужны, если с ними начала нот ложатся на сетку заметно точнее,
+  // чем на сетку восьмых; каждая нота между восьмыми — небольшой штраф за сложность.
   function autoStep(notes, bpm) {
     if (notes.length < 2) return 2;
-    const { q, raw } = gridOnsets(notes, 60 / bpm / UPQ, 1);
-    const odd = q.filter((p, k) => p % 2 && Math.abs(raw[k] - p) < 0.35).length;
-    return odd >= 2 && odd >= 0.06 * q.length ? 1 : 2;
+    const u = 60 / bpm / UPQ;
+    const cost = (step) => {
+      const { q, raw } = gridOnsets(notes, u, step);
+      return q.reduce((s, p, k) => s + (raw[k] - p) ** 2 + (p % 2 ? 0.3 : 0), 0);
+    };
+    return cost(1) < cost(2) ? 1 : 2;
   }
 
   function finish(events, info) {
@@ -704,6 +763,7 @@
   }
 
   const api = {
+    params: P,
     FMIN, FMAX, UPQ, resample, analyzePitch, pitchTrack, tuningCurve, segmentNotes, estimateTempo, estimateKey, keyFromFifths,
     quantize, layout, meterInfo, spell, toABC, toMusicXML, toMIDI, noteNameRu, noteNameEn, keyNameRu, majorFifths, median,
   };
