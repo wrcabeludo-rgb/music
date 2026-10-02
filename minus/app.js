@@ -324,6 +324,10 @@ async function addSong(file) {
     if (!confirm('Трек длиннее 12 минут, обработка займет много времени и памяти. Продолжить?')) { closeProc(); return; }
   }
 
+  startSeparation(file, decoded, false);
+}
+
+function startSeparation(file, decoded, singleThread) {
   worker = new Worker(new URL('./separate.worker.js', import.meta.url), { type: 'module' });
   let phase = 'download';
   worker.onmessage = async (e) => {
@@ -338,7 +342,9 @@ async function addSong(file) {
       setProc({
         pct: m.progress * 100,
         meta: (m.totalSegments ? 'Фрагмент ' + m.currentSegment + ' из ' + m.totalSegments : 'Подготовка') + eta +
-          (m.backend === 'wasm' ? ' · режим без видеокарты, будет медленно' : ''),
+          (m.backend === 'wasm'
+            ? ' · без видеокарты (' + (m.gpuProblem || 'причина неизвестна') + '), потоков: ' + m.threads
+            : ' · на видеокарте'),
       });
     } else if (m.type === 'done') {
       setProc({ status: 'Сохраняю дорожки…', pct: 100, meta: '' });
@@ -362,6 +368,13 @@ async function addSong(file) {
       await openSong(meta, m.stems);
       try { localStorage.removeItem(JOB_KEY); } catch {}
     } else if (m.type === 'error') {
+      // Многопоточный режим не завелся: пробуем еще раз в один поток.
+      if (m.threaded && m.left && !singleThread && phase !== 'separate') {
+        worker.terminate();
+        setProc({ status: 'Пробую в обычном режиме…', meta: '' });
+        startSeparation(file, { ...decoded, left: m.left, right: m.right }, true);
+        return;
+      }
       closeProc();
       toast(phase === 'download' ? 'Ошибка: ' + m.message : 'Не удалось разделить трек: ' + m.message, 6000);
     }
@@ -369,7 +382,7 @@ async function addSong(file) {
   worker.onerror = () => { closeProc(); toast('Ошибка воркера. Возможно, браузер не поддерживает нужные функции.', 6000); };
 
   setProc({ status: 'Готовлю модель…' });
-  worker.postMessage({ left: decoded.left, right: decoded.right, modelUrl: MODEL_URL }, [decoded.left.buffer, decoded.right.buffer]);
+  worker.postMessage({ left: decoded.left, right: decoded.right, modelUrl: MODEL_URL, singleThread }, [decoded.left.buffer, decoded.right.buffer]);
 }
 
 $('procCancel').onclick = closeProc;
@@ -679,7 +692,22 @@ const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
 const standalone = window.matchMedia('(display-mode: standalone)').matches || navigator.standalone;
 $('iosHint').hidden = !(isIos && !standalone);
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // Заголовки для многопоточности ставит service worker. Страница, открытая до
+  // того, как он взял управление, их не получила: перезагружаем один раз.
+  const reloadForIsolation = () => {
+    let tries = 0;
+    try { tries = Number(localStorage.getItem('coi-reload')) || 0; } catch {}
+    if (window.crossOriginIsolated || tries >= 2) return; // браузер не поддерживает: не зацикливаемся
+    if (!$('processing').hidden) return; // не прерываем обработку
+    try { localStorage.setItem('coi-reload', String(tries + 1)); } catch {}
+    location.reload();
+  };
+  navigator.serviceWorker.addEventListener('controllerchange', reloadForIsolation);
+  if (navigator.serviceWorker.controller) reloadForIsolation();
+  if (window.crossOriginIsolated) { try { localStorage.removeItem('coi-reload'); } catch {} }
+}
 
 renderLibrary();
 

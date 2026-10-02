@@ -1,6 +1,6 @@
 // Service worker: оболочка приложения работает офлайн.
 // Тяжелые файлы (vendor/) кэшируются при первом использовании.
-const VERSION = 'v5';
+const VERSION = 'v6';
 const SHELL = `minus-shell-${VERSION}`;
 const VENDOR = `minus-vendor-${VERSION}`;
 const SHELL_FILES = [
@@ -20,6 +20,17 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+// GitHub Pages не ставит заголовки COOP/COEP, без которых браузер не дает
+// SharedArrayBuffer, а значит и многопоточный WASM. Добавляем их сами.
+function isolated(res) {
+  if (!res || res.status === 0 || res.type === 'opaque' || res.type === 'opaqueredirect') return res;
+  const headers = new Headers(res.headers);
+  headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
@@ -30,10 +41,10 @@ self.addEventListener('fetch', (e) => {
     // cache-first
     e.respondWith(caches.open(VENDOR).then(async (c) => {
       const hit = await c.match(req);
-      if (hit) return hit;
+      if (hit) return isolated(hit);
       const res = await fetch(req);
       if (res.ok) c.put(req, res.clone());
-      return res;
+      return isolated(res);
     }));
     return;
   }
@@ -41,6 +52,6 @@ self.addEventListener('fetch', (e) => {
   // network-first для остального, с откатом на кэш
   e.respondWith(fetch(req).then((res) => {
     if (res.ok) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(req, copy)); }
-    return res;
-  }).catch(() => caches.match(req).then((hit) => hit || caches.match('index.html'))));
+    return isolated(res);
+  }).catch(() => caches.match(req).then((hit) => isolated(hit) || caches.match('index.html').then(isolated))));
 });
