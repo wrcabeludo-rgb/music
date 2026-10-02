@@ -57,23 +57,24 @@ async function withStores(names, mode, fn) {
 const reqP = (r) => new Promise((res, rej) => { r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
 
 const listSongs = () => withStores(['songs'], 'readonly', (s) => reqP(s.getAll())).then((a) => a.sort((x, y) => y.created - x.created));
-async function saveSong(meta, stems) {
-  await withStores(['songs', 'pcm'], 'readwrite', (songs, pcm) => {
-    songs.put(meta);
-    for (const { key } of STEMS) pcm.put(stems[key], meta.id + ':' + key);
-  });
-}
-async function loadStems(id) {
+// Дорожки хранятся кусками ("id:key:n", их пишет воркер по ходу разделения)
+// или, у песен из ранних версий, целиком ("id:key"). Внутри каждого Int16Array
+// сначала левый канал, потом правый.
+const saveSong = (meta) => withStores(['songs'], 'readwrite', (songs) => { songs.put(meta); });
+function loadStemChunks(meta, key) {
   return withStores(['pcm'], 'readonly', async (pcm) => {
-    const out = {};
-    await Promise.all(STEMS.map(async ({ key }) => { out[key] = await reqP(pcm.get(id + ':' + key)); }));
+    if (!meta.chunks) return [await reqP(pcm.get(meta.id + ':' + key))];
+    const out = [];
+    for (let n = 0; n < meta.chunks; n++) out.push(await reqP(pcm.get(meta.id + ':' + key + ':' + n)));
     return out;
   });
 }
+const pcmRange = (id) => IDBKeyRange.bound(id + ':', id + ':\uffff');
+const deletePcm = (id) => withStores(['pcm'], 'readwrite', (pcm) => { pcm.delete(pcmRange(id)); });
 async function deleteSong(id) {
   await withStores(['songs', 'pcm'], 'readwrite', (songs, pcm) => {
     songs.delete(id);
-    for (const { key } of STEMS) pcm.delete(id + ':' + key);
+    pcm.delete(pcmRange(id));
   });
   localStorage.removeItem('mix:' + id);
 }
@@ -104,19 +105,21 @@ class Engine {
     this.loop = { a: null, b: null, on: false };
   }
 
-  load(pcmByKey) {
-    for (const { key } of STEMS) {
-      const data = pcmByKey[key];
-      const n = data.length / 2;
-      const buffer = this.ctx.createBuffer(2, n, SAMPLE_RATE);
-      const l = buffer.getChannelData(0), r = buffer.getChannelData(1);
-      for (let i = 0; i < n; i++) { l[i] = data[i] / 32768; r[i] = data[n + i] / 32768; }
-      const gain = this.ctx.createGain();
-      gain.connect(this.master);
-      this.stems[key] = { buffer, gain, fader: DEFAULT_FADER, mute: false, solo: false, src: null };
-      this.duration = Math.max(this.duration, n / SAMPLE_RATE);
+  // chunks: Int16Array-куски дорожки по порядку, в каждом левый канал, потом правый.
+  addStem(key, chunks) {
+    const n = chunks.reduce((sum, c) => sum + c.length / 2, 0);
+    const buffer = this.ctx.createBuffer(2, n, SAMPLE_RATE);
+    const l = buffer.getChannelData(0), r = buffer.getChannelData(1);
+    let off = 0;
+    for (const c of chunks) {
+      const m = c.length / 2;
+      for (let i = 0; i < m; i++) { l[off + i] = c[i] / 32768; r[off + i] = c[m + i] / 32768; }
+      off += m;
     }
-    this.applyGains(true);
+    const gain = this.ctx.createGain();
+    gain.connect(this.master);
+    this.stems[key] = { buffer, gain, fader: DEFAULT_FADER, mute: false, solo: false, src: null };
+    this.duration = Math.max(this.duration, n / SAMPLE_RATE);
   }
 
   applyGains(instant = false) {
@@ -287,7 +290,11 @@ function setProc({ status, pct, meta }) {
     localStorage.setItem(JOB_KEY, $('procStatus').textContent + ($('procMeta').textContent ? ' (' + $('procMeta').textContent + ')' : ''));
   } catch {}
 }
+// id песни, которую сейчас пишет воркер: при отмене или ошибке удаляем ее куски.
+let jobSongId = null;
 function closeProc() {
+  if (jobSongId) { deletePcm(jobSongId).catch(() => {}); jobSongId = null; }
+  try { localStorage.removeItem(JOB_KEY + ':id'); } catch {}
   jobSavedAt = 0;
   try { localStorage.removeItem(JOB_KEY); } catch {}
   $('processing').hidden = true;
@@ -324,10 +331,12 @@ async function addSong(file) {
     if (!confirm('Трек длиннее 12 минут, обработка займет много времени и памяти. Продолжить?')) { closeProc(); return; }
   }
 
-  startSeparation(file, decoded, false);
+  startSeparation(file, decoded, false, crypto.randomUUID());
 }
 
-function startSeparation(file, decoded, singleThread) {
+function startSeparation(file, decoded, singleThread, songId) {
+  jobSongId = songId;
+  try { localStorage.setItem(JOB_KEY + ':id', songId); } catch {}
   worker = new Worker(new URL('./separate.worker.js', import.meta.url), { type: 'module' });
   let phase = 'download';
   worker.onmessage = async (e) => {
@@ -349,13 +358,16 @@ function startSeparation(file, decoded, singleThread) {
     } else if (m.type === 'done') {
       setProc({ status: 'Сохраняю дорожки…', pct: 100, meta: '' });
       const meta = {
-        id: crypto.randomUUID(),
+        id: songId,
         name: file.name.replace(/\.[^.]+$/, ''),
         duration: decoded.duration,
         created: Date.now(),
+        chunks: m.chunks,
       };
       try {
-        await saveSong(meta, m.stems);
+        await saveSong(meta);
+        jobSongId = null; // песня сохранена, недописанных кусков нет
+        try { localStorage.removeItem(JOB_KEY + ':id'); } catch {}
         navigator.storage?.persist?.();
       } catch {
         closeProc();
@@ -365,14 +377,14 @@ function startSeparation(file, decoded, singleThread) {
       closeProc();
       await renderLibrary();
       try { localStorage.setItem(JOB_KEY, 'Открываю дорожки в плеере'); } catch {}
-      await openSong(meta, m.stems);
+      await openSong(meta);
       try { localStorage.removeItem(JOB_KEY); } catch {}
     } else if (m.type === 'error') {
       // Многопоточный режим не завелся: пробуем еще раз в один поток.
       if (m.threaded && m.left && !singleThread && phase !== 'separate') {
         worker.terminate();
         setProc({ status: 'Пробую в обычном режиме…', meta: '' });
-        startSeparation(file, { ...decoded, left: m.left, right: m.right }, true);
+        startSeparation(file, { ...decoded, left: m.left, right: m.right }, true, songId);
         return;
       }
       closeProc();
@@ -382,7 +394,7 @@ function startSeparation(file, decoded, singleThread) {
   worker.onerror = () => { closeProc(); toast('Ошибка воркера. Возможно, браузер не поддерживает нужные функции.', 6000); };
 
   setProc({ status: 'Готовлю модель…' });
-  worker.postMessage({ left: decoded.left, right: decoded.right, modelUrl: MODEL_URL, singleThread }, [decoded.left.buffer, decoded.right.buffer]);
+  worker.postMessage({ left: decoded.left, right: decoded.right, modelUrl: MODEL_URL, singleThread, songId }, [decoded.left.buffer, decoded.right.buffer]);
 }
 
 $('procCancel').onclick = closeProc;
@@ -643,13 +655,14 @@ $('back').onclick = () => {
   show('library');
 };
 
-async function openSong(meta, stemsMaybe) {
+async function openSong(meta) {
   try {
-    const pcm = stemsMaybe || (await loadStems(meta.id));
     engine?.close();
     engine = new Engine();
     currentSong = meta;
-    engine.load(pcm);
+    // По одной дорожке: в памяти не лежат сразу все куски и все AudioBuffer.
+    for (const { key } of STEMS) engine.addStem(key, await loadStemChunks(meta, key));
+    engine.applyGains(true);
     await engine.initShifter();
   } catch {
     toast('Не удалось открыть песню.');
@@ -712,6 +725,14 @@ if ('serviceWorker' in navigator) {
 renderLibrary();
 
 try {
+  // Страницу закрыли посреди обработки: удаляем недописанные куски.
+  const orphan = localStorage.getItem(JOB_KEY + ':id');
+  if (orphan) {
+    listSongs().then((songs) => {
+      if (!songs.some((x) => x.id === orphan)) deletePcm(orphan).catch(() => {});
+      localStorage.removeItem(JOB_KEY + ':id');
+    }).catch(() => {});
+  }
   const lastJob = localStorage.getItem(JOB_KEY);
   if (lastJob) {
     localStorage.removeItem(JOB_KEY);

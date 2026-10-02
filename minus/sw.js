@@ -1,6 +1,6 @@
 // Service worker: оболочка приложения работает офлайн.
 // Тяжелые файлы (vendor/) кэшируются при первом использовании.
-const VERSION = 'v6';
+const VERSION = 'v7';
 const SHELL = `minus-shell-${VERSION}`;
 const VENDOR = `minus-vendor-${VERSION}`;
 const SHELL_FILES = [

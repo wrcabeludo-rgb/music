@@ -259,8 +259,10 @@ export class DemucsProcessor {
    * finished samples go straight to 16-bit PCM. Memory does not grow with
    * a float copy of every stem, which matters on phones.
    * Returns { drums, bass, other, vocals }: Int16Array(2 * n), left then right.
+   * With onChunk(start, { drums, bass, ... }) finished pieces (Int16Array, left
+   * then right within the piece) are handed out instead and nothing is kept.
    */
-  async separateInt16(leftChannel, rightChannel) {
+  async separateInt16(leftChannel, rightChannel, onChunk = null) {
     if (!this.session) {
       throw new Error('Model not loaded. Call loadModel() first.');
     }
@@ -270,7 +272,7 @@ export class DemucsProcessor {
     const stride = Math.floor(L * (1 - SEGMENT_OVERLAP));
     const numSegments = Math.ceil((totalSamples - L) / stride) + 1;
 
-    const pcm = TRACKS.map(() => new Int16Array(totalSamples * 2));
+    const pcm = onChunk ? null : TRACKS.map(() => new Int16Array(totalSamples * 2));
     const acc = TRACKS.map(() => ({ left: new Float32Array(L), right: new Float32Array(L) }));
     const weights = new Float32Array(L);
     const segLeft = new Float32Array(L);
@@ -299,18 +301,23 @@ export class DemucsProcessor {
 
       // Samples before the next segment get no more contributions: finalize them.
       const done = start + stride >= totalSamples ? totalSamples - start : stride;
+      const chunk = {};
       for (let t = 0; t < TRACKS.length; t++) {
         const { left, right } = acc[t];
-        const out = pcm[t];
+        // Целиком: левый канал в [0, n), правый в [n, 2n). Кусками: то же внутри куска.
+        const out = onChunk ? new Int16Array(done * 2) : pcm[t];
+        const lo = onChunk ? 0 : start, ro = onChunk ? done : totalSamples + start;
         for (let i = 0; i < done; i++) {
           const w = weights[i] > 0 ? weights[i] : 1;
-          out[start + i] = toI16(left[i] / w);
-          out[totalSamples + start + i] = toI16(right[i] / w);
+          out[lo + i] = toI16(left[i] / w);
+          out[ro + i] = toI16(right[i] / w);
         }
+        if (onChunk) chunk[TRACKS[t]] = out;
         left.copyWithin(0, stride); left.fill(0, L - stride);
         right.copyWithin(0, stride); right.fill(0, L - stride);
       }
       weights.copyWithin(0, stride); weights.fill(0, L - stride);
+      if (onChunk) await onChunk(start, chunk);
 
       segmentIdx++;
       this.onProgress({
@@ -320,6 +327,7 @@ export class DemucsProcessor {
       });
     }
 
+    if (onChunk) return null;
     const result = {};
     TRACKS.forEach((key, t) => { result[key] = pcm[t]; });
     return result;
