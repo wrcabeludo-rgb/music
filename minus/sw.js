@@ -1,6 +1,6 @@
 // Service worker: оболочка приложения работает офлайн.
 // Тяжелые файлы (vendor/) кэшируются при первом использовании.
-const VERSION = 'v8';
+const VERSION = 'v9';
 const SHELL = `minus-shell-${VERSION}`;
 const VENDOR = `minus-vendor-${VERSION}`;
 const SHELL_FILES = [
@@ -49,8 +49,11 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // network-first для остального, с откатом на кэш
-  e.respondWith(fetch(req).then((res) => {
+  // network-first для остального, с откатом на кэш. cache: 'no-cache' — сверяемся
+  // с сервером (GitHub Pages разрешает держать файлы 10 минут), чтобы новая
+  // версия подхватывалась сразу; без изменений ответ короткий (304).
+  const fresh = req.mode === 'navigate' ? new Request(req.url, { cache: 'no-cache', credentials: 'same-origin' }) : new Request(req, { cache: 'no-cache' });
+  e.respondWith(fetch(fresh).then((res) => {
     if (res.ok) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(req, copy)); }
     return isolated(res);
   }).catch(() => caches.match(req).then((hit) => isolated(hit) || caches.match('index.html').then(isolated))));
