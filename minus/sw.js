@@ -1,10 +1,10 @@
 // Service worker: оболочка приложения работает офлайн.
 // Тяжелые файлы (vendor/) кэшируются при первом использовании.
-const VERSION = 'v4';
+const VERSION = 'v5';
 const SHELL = `minus-shell-${VERSION}`;
 const VENDOR = `minus-vendor-${VERSION}`;
 const SHELL_FILES = [
-  './', 'index.html', 'style.css', 'app.js', 'separate.worker.js', 'manifest.webmanifest',
+  './', 'index.html', 'style.css', 'app.js', 'separate.worker.js', 'pitch.worklet.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 

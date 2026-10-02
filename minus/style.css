@@ -81,6 +81,14 @@ button:focus-visible, [tabindex]:focus-visible, label:focus-within {
 .chip.set { border-color: var(--paper); }
 .chip:disabled { opacity: .35; }
 
+.tonebar { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.stepper { display: flex; align-items: center; min-width: 0; border: 1.5px solid var(--line); border-radius: 999px; padding: 0 2px 0 12px; }
+.st-lbl { font-size: 14px; font-weight: 600; color: var(--muted); margin-right: auto; }
+.st-btn { width: 40px; height: 44px; font-size: 20px; font-weight: 700; touch-action: manipulation; }
+.st-btn:disabled { opacity: .3; }
+.st-val { min-width: 46px; height: 44px; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; text-align: center; padding: 0; touch-action: manipulation; }
+.stepper.changed { border-color: var(--paper); }
+
 /* Микшер */
 .mixer { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 18px; min-height: 280px; }
 .ch { --c: #fff; display: grid; grid-template-rows: auto 1fr auto auto; gap: 10px; justify-items: center;

@@ -92,10 +92,14 @@ class Engine {
     this.master = this.ctx.createGain();
     this.master.gain.value = 0.9;
     this.master.connect(this.ctx.destination);
+    this.shifter = null; // AudioWorklet сдвига тона, подключается только когда нужен
+    this.semitones = 0;
+    this.tempo = 1;
     this.stems = {};
     this.duration = 0;
     this.offset = 0;
-    this.startedAt = 0;
+    this.anchorTime = 0; // время ctx, с которого считается позиция
+    this.anchorOff = 0;  // позиция в песне в этот момент
     this.playing = false;
     this.loop = { a: null, b: null, on: false };
   }
@@ -132,8 +136,8 @@ class Engine {
 
   position() {
     if (!this.playing) return this.offset;
-    let t = this.ctx.currentTime - this.startedAt;
-    if (t < 0) t = 0;
+    let t = this.anchorOff + (this.ctx.currentTime - this.anchorTime) * this.tempo;
+    if (t < this.anchorOff) t = this.anchorOff;
     const { a, b, on } = this.loop;
     if (on && b > a && t >= b) t = a + ((t - a) % (b - a));
     return Math.min(t, this.duration);
@@ -153,14 +157,51 @@ class Engine {
     for (const s of Object.values(this.stems)) {
       const src = this.ctx.createBufferSource();
       src.buffer = s.buffer;
+      src.playbackRate.value = this.tempo;
       if (looping) { src.loop = true; src.loopStart = a; src.loopEnd = b; }
       src.connect(s.gain);
       src.start(t0, off);
       s.src = src;
     }
-    this.startedAt = t0 - off;
+    this.anchorTime = t0;
+    this.anchorOff = off;
     this.offset = off;
     this.playing = true;
+    this.shifter?.port.postMessage({ clear: true });
+  }
+
+  // Тон и темп. Темп = скорость дорожек; тон, который при этом сдвигается,
+  // выравнивает SoundTouch в AudioWorklet.
+  async initShifter() {
+    if (!this.ctx.audioWorklet) return false;
+    try {
+      await this.ctx.audioWorklet.addModule(new URL('./pitch.worklet.js?v=1', import.meta.url));
+      this.shifter = new AudioWorkletNode(this.ctx, 'pitch-shift', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2] });
+      this.shifter.connect(this.ctx.destination);
+      return true;
+    } catch { this.shifter = null; return false; }
+  }
+  setTone({ semitones = this.semitones, tempo = this.tempo }) {
+    if (tempo !== this.tempo) {
+      if (this.playing) {
+        const pos = this.position();
+        for (const s of Object.values(this.stems)) s.src?.playbackRate.setValueAtTime(tempo, this.ctx.currentTime);
+        this.anchorTime = this.ctx.currentTime;
+        this.anchorOff = pos;
+      }
+      this.tempo = tempo;
+    }
+    this.semitones = semitones;
+    const pitch = Math.pow(2, semitones / 12) / tempo;
+    const shift = !!this.shifter && Math.abs(pitch - 1) > 1e-4;
+    this.master.disconnect();
+    if (shift) {
+      this.shifter.port.postMessage({ pitch, clear: !this.shifting });
+      this.master.connect(this.shifter);
+    } else {
+      this.master.connect(this.ctx.destination);
+    }
+    this.shifting = shift;
   }
 
   async play() {
@@ -385,6 +426,7 @@ function mixKey() { return 'mix:' + currentSong.id; }
 function saveMix() {
   const o = {};
   for (const { key } of STEMS) { const s = engine.stems[key]; o[key] = { f: s.fader, m: s.mute, s: s.solo }; }
+  o.tone = { st: engine.semitones, tempo: engine.tempo };
   localStorage.setItem(mixKey(), JSON.stringify(o));
 }
 
@@ -430,7 +472,45 @@ function buildMixer() {
   }
   engine.applyGains(true);
   refresh();
+
+  const tone = saved?.tone;
+  engine.setTone({ semitones: clamp(tone?.st ?? 0, TONE_MIN, TONE_MAX), tempo: clamp(tone?.tempo ?? 1, TEMPO_MIN, TEMPO_MAX) });
+  updateToneUi();
 }
+
+// ---------- Тон и темп ----------
+const TONE_MIN = -6, TONE_MAX = 6;
+const TEMPO_MIN = 0.5, TEMPO_MAX = 1.5, TEMPO_STEP = 0.05;
+const semisLabel = (n) => (n > 0 ? '+' + n : n < 0 ? '−' + -n : '0');
+
+function updateToneUi() {
+  const ok = !!engine.shifter;
+  const st = engine.semitones, pct = Math.round(engine.tempo * 100);
+  $('toneVal').textContent = semisLabel(st);
+  $('toneVal').setAttribute('aria-label', (st ? 'Тон ' + semisLabel(st) + ' полутона' : 'Тон без изменений') + '. Нажмите, чтобы сбросить');
+  $('tempoVal').textContent = pct + '%';
+  $('tempoVal').setAttribute('aria-label', 'Темп ' + pct + '%. Нажмите, чтобы сбросить');
+  $('toneDown').disabled = !ok || st <= TONE_MIN;
+  $('toneUp').disabled = !ok || st >= TONE_MAX;
+  $('tempoDown').disabled = !ok || engine.tempo <= TEMPO_MIN + 1e-6;
+  $('tempoUp').disabled = !ok || engine.tempo >= TEMPO_MAX - 1e-6;
+  $('toneVal').closest('.stepper').classList.toggle('changed', st !== 0);
+  $('tempoVal').closest('.stepper').classList.toggle('changed', pct !== 100);
+}
+function changeTone(patch) {
+  if (!engine?.shifter) return;
+  if (patch.tempo != null) patch.tempo = Math.round(clamp(patch.tempo, TEMPO_MIN, TEMPO_MAX) * 100) / 100;
+  if (patch.semitones != null) patch.semitones = clamp(patch.semitones, TONE_MIN, TONE_MAX);
+  engine.setTone(patch);
+  updateToneUi();
+  saveMix();
+}
+$('toneDown').onclick = () => changeTone({ semitones: engine.semitones - 1 });
+$('toneUp').onclick = () => changeTone({ semitones: engine.semitones + 1 });
+$('toneVal').onclick = () => changeTone({ semitones: 0 });
+$('tempoDown').onclick = () => changeTone({ tempo: engine.tempo - TEMPO_STEP });
+$('tempoUp').onclick = () => changeTone({ tempo: engine.tempo + TEMPO_STEP });
+$('tempoVal').onclick = () => changeTone({ tempo: 1 });
 
 // Волна по сумме всех дорожек
 function computePeaks(buckets = 400) {
@@ -557,6 +637,7 @@ async function openSong(meta, stemsMaybe) {
     engine = new Engine();
     currentSong = meta;
     engine.load(pcm);
+    await engine.initShifter();
   } catch {
     toast('Не удалось открыть песню.');
     return;
