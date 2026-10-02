@@ -1,6 +1,6 @@
 // Воркер: скачивает модель HTDemucs (один раз, кэш), разделяет трек на 4 стема.
 import * as ort from './vendor/ort/ort.webgpu.min.mjs';
-import { DemucsProcessor } from './vendor/demucs/processor.js?v=3';
+import { DemucsProcessor } from './vendor/demucs/processor.js?v=4';
 
 ort.env.wasm.wasmPaths = new URL('./vendor/ort/', import.meta.url).href;
 // Без cross-origin isolation (GitHub Pages) потоки WASM недоступны.
@@ -102,6 +102,15 @@ async function run({ left, right, modelUrl }) {
   post({ type: 'progress', progress: 0, currentSegment: 0, totalSegments: 0, eta: 0, backend });
   started = performance.now();
   const stems = await processor.separateInt16(left, right);
+
+  // Сбой вычислений (например, WebGPU на телефоне) дает нули вместо звука:
+  // лучше сказать об этом, чем сохранить пустые дорожки.
+  const peak = (a, step) => { let m = 0; for (let i = 0; i < a.length; i += step) { const v = Math.abs(a[i]); if (v > m) m = v; } return m; };
+  const inPeak = Math.max(peak(left, 97), peak(right, 97));
+  const outPeak = Math.max(...Object.values(stems).map((a) => peak(a, 97)));
+  if (inPeak > 0.01 && outPeak < 2) {
+    throw new Error('нейросеть вернула тишину (режим ' + (backend === 'webgpu' ? 'WebGPU' : 'WASM') + ')');
+  }
   post({ type: 'done', stems, backend }, Object.values(stems).map((a) => a.buffer));
 }
 

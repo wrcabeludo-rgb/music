@@ -79,8 +79,14 @@ async function deleteSong(id) {
 }
 
 // ---------- Аудиодвижок ----------
+// iOS: без этого Web Audio молчит в беззвучном режиме (переключатель сбоку).
+function audioAsPlayback() {
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch {}
+}
+
 class Engine {
   constructor() {
+    audioAsPlayback();
     const AC = window.AudioContext || window.webkitAudioContext;
     this.ctx = new AC({ sampleRate: SAMPLE_RATE });
     this.master = this.ctx.createGain();
@@ -159,6 +165,7 @@ class Engine {
 
   async play() {
     if (this.playing) return;
+    audioAsPlayback();
     await this.ctx.resume();
     if (this.offset >= this.duration - 0.05) this.offset = 0;
     this._startSources(this.offset);
