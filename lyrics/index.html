@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#16130f">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Тексты">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="Тренажёр для написания текстов песен: шаблоны со слогами, опорными словами и рифмами.">
+  <title>Тексты по шаблонам</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Главная -->
+<main id="home" class="view">
+  <header class="top">
+    <h1>Тексты по шаблонам</h1>
+    <button id="installBtn" class="ghost" hidden>Установить</button>
+  </header>
+  <p class="lead">Возьми шаблон — сколько слогов в строке, с каких слов начинать, что с чем рифмовать — и напиши по нему текст. Слоги и рифмы проверяются на ходу.</p>
+
+  <section class="panel">
+    <h3>Новый шаблон</h3>
+    <div class="field"><span class="lbl">Вид</span>
+      <div class="seg" id="genKind" role="radiogroup">
+        <button role="radio" data-v="any" aria-checked="true">Любой</button>
+        <button role="radio" data-v="short">Короткие</button>
+        <button role="radio" data-v="long">Длинные</button>
+        <button role="radio" data-v="frames">Рамки</button>
+      </div>
+    </div>
+    <div class="field" id="genSylField"><span class="lbl">Слогов в строке</span>
+      <div class="seg" id="genSyl" role="radiogroup">
+        <button role="radio" data-v="0" aria-checked="true">Любое</button>
+        <button role="radio" data-v="2">2</button><button role="radio" data-v="3">3</button>
+        <button role="radio" data-v="4">4</button><button role="radio" data-v="5">5</button>
+        <button role="radio" data-v="6">6</button><button role="radio" data-v="7">7</button>
+      </div>
+    </div>
+    <div id="genPreview" class="preview"></div>
+    <div class="row">
+      <button id="genAgain" class="ghost">Другой вариант</button>
+      <button id="genWrite" class="primary small">Писать</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h3>Шаблоны</h3>
+    <div id="baseList" class="list"></div>
+  </section>
+
+  <section class="panel" id="worksPanel">
+    <h3>Мои тексты</h3>
+    <div id="worksList" class="list"></div>
+    <p id="worksEmpty" class="muted">Пока пусто — начни с любого шаблона.</p>
+  </section>
+
+  <p id="iosHint" class="hint" hidden>Чтобы установить на iPhone: «Поделиться» → «На экран „Домой“».</p>
+</main>
+
+<!-- Письмо по шаблону -->
+<main id="write" class="view" hidden>
+  <header class="top">
+    <button id="backBtn" class="icon" aria-label="Назад"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+    <input id="title" class="title-input" placeholder="Название" autocomplete="off">
+  </header>
+  <p id="tplInfo" class="summary"></p>
+  <div id="sheet"></div>
+  <p id="progress" class="summary"></p>
+  <div class="row wrap">
+    <button id="copyBtn" class="ghost">Скопировать текст</button>
+    <button id="shareBtn" class="ghost" hidden>Поделиться</button>
+    <button id="clearBtn" class="ghost">Очистить</button>
+    <button id="delBtn" class="ghost danger">Удалить</button>
+  </div>
+  <p class="hint small">Слоги считаются по гласным. Рифма проверяется по концу последнего слова: ✓ — рифма, ≈ — созвучие. Ударение приложение не знает — проверяй на слух.</p>
+</main>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="templates.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,106 @@
+:root {
+  --bg: #16130f;
+  --surface: #211d18;
+  --line: #3a332b;
+  --text: #f3ede4;
+  --muted: #a89f92;
+  --acc: #f2a33a;
+  --acc-ink: #1d1406;
+  --ok: #6cc684;
+  --warn: #e7b84d;
+  --danger: #ff6b5a;
+  --radius: 14px;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+  color-scheme: dark;
+  font-family: "Avenir Next", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f6f1ea; --surface: #fffdf9; --line: #e2d8ca; --text: #231c14; --muted: #6f6455; --acc: #c46f05; --acc-ink: #fff;
+    --ok: #23843f; --warn: #9a6a00; --danger: #c92a1a; color-scheme: light; }
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+body { -webkit-font-smoothing: antialiased; }
+[hidden] { display: none !important; }
+
+button, input { font: inherit; color: inherit; }
+button { border: 0; background: none; cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }
+
+.view { max-width: 620px; margin: 0 auto; padding: calc(16px + var(--safe-t)) 16px calc(28px + var(--safe-b)); }
+
+.top { display: flex; align-items: center; gap: 10px; min-height: 48px; }
+.top h1 { font-size: 28px; letter-spacing: -0.02em; margin: 0; flex: 1; font-weight: 800; }
+.title-input { flex: 1; min-width: 0; font-size: 20px; font-weight: 700; background: transparent; border: 0;
+  border-bottom: 1.5px dashed var(--line); padding: 6px 2px; }
+
+.lead { color: var(--muted); line-height: 1.5; margin: 12px 0 18px; }
+.muted { color: var(--muted); font-size: 14.5px; margin: 4px 2px; }
+.hint { color: var(--muted); font-size: 14px; line-height: 1.5; margin-top: 22px; }
+.hint.small { font-size: 13px; }
+.summary { color: var(--muted); font-size: 14.5px; line-height: 1.5; margin: 8px 2px 12px; }
+
+.primary { display: grid; place-items: center; min-height: 48px; padding: 0 22px; border-radius: var(--radius);
+  background: var(--acc); color: var(--acc-ink); font-weight: 700; font-size: 16px; }
+.ghost { padding: 10px 14px; border-radius: 999px; border: 1.5px solid var(--line); font-weight: 600; }
+.ghost.danger { color: var(--danger); }
+.icon { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+
+.panel { margin-top: 16px; background: var(--surface); border-radius: var(--radius); padding: 14px 14px 16px; }
+.panel h3 { margin: 0 0 8px; font-size: 17px; }
+.row { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+.row > * { flex: 1; min-height: 48px; }
+.row.wrap { flex-wrap: wrap; gap: 8px; }
+.row.wrap > * { flex: none; min-height: 0; }
+
+.field { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 5px 0; }
+.field .lbl { width: 128px; flex: none; color: var(--muted); font-size: 14px; font-weight: 600; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1.5px solid var(--line); border-radius: 14px; overflow: hidden; }
+.seg button { min-height: 40px; min-width: 40px; padding: 0 12px; font-weight: 600; font-size: 14px; }
+.seg button + button { border-left: 1.5px solid var(--line); }
+.seg button[aria-checked="true"] { background: var(--acc); color: var(--acc-ink); }
+.seg button:disabled { opacity: .35; }
+
+/* Предпросмотр шаблона */
+.preview { margin-top: 10px; background: var(--bg); border-radius: 12px; padding: 12px 14px; font-size: 14.5px; line-height: 1.55; }
+.preview b.name { display: block; font-size: 17px; }
+.preview .about { color: var(--muted); margin: 2px 0 8px; }
+.preview h4 { margin: 10px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.preview ol { margin: 0; padding-left: 28px; }
+.preview li::marker { color: var(--muted); font-variant-numeric: tabular-nums; }
+.preview .fx { color: var(--acc); font-weight: 650; }
+.preview .rh { color: var(--muted); }
+
+/* Списки */
+.list { display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr); }
+.item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--bg); border-radius: 12px; padding: 12px 14px; min-height: 56px; }
+.item span { flex: 1; min-width: 0; }
+.item b { display: block; }
+.item small { color: var(--muted); display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .go { color: var(--muted); font-size: 20px; }
+
+/* Лист с текстом */
+.part { margin: 18px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 700; }
+.line { display: grid; grid-template-columns: 28px 1fr auto; gap: 2px 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.line .no { color: var(--muted); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+.line .hintline { grid-column: 2 / 4; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.line .hintline .rh-ok { color: var(--ok); font-weight: 650; }
+.line .hintline .rh-near { color: var(--warn); font-weight: 650; }
+.line .hintline .bad { color: var(--danger); }
+.line input { width: 100%; min-width: 0; min-height: 40px; border: 0; background: transparent; font-size: 17px; padding: 4px 0; }
+.line input::placeholder { color: var(--muted); opacity: .6; }
+.line .fixedtext { font-size: 17px; color: var(--acc); font-weight: 650; padding: 8px 0; }
+.line .cnt { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 38px; text-align: right; color: var(--muted); }
+.line .cnt.ok { color: var(--ok); }
+.line .cnt.under { color: var(--warn); }
+.line .cnt.over { color: var(--danger); }
+.line.target { background: color-mix(in srgb, var(--acc) 10%, transparent); }
+
+.toast { position: fixed; left: 50%; bottom: calc(24px + var(--safe-b)); transform: translateX(-50%); max-width: calc(100% - 32px);
+  background: var(--text); color: var(--bg); padding: 12px 16px; border-radius: 12px; font-weight: 600; z-index: 20; text-align: center; }
+
+@media (max-width: 480px) {
+  .field .lbl { width: 100%; }
+}
