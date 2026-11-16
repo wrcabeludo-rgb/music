@@ -104,3 +104,15 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--acc); outli
 @media (max-width: 480px) {
   .field .lbl { width: 100%; }
 }
+
+.song-builder .text-field { display: grid; gap: 6px; margin-top: 12px; color: var(--muted); font-size: 14px; font-weight: 650; }
+.song-builder .text-field input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); }
+.song-builder .seg { max-width: 100%; }
+.song-builder .seg button { flex: 1; }
+.preview .sample { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
+.song-builder .preview { max-height: 300px; overflow: auto; }
+.line .suggestion { grid-column: 2 / 4; color: var(--muted); font-size: 13px; line-height: 1.4; padding: 2px 0 4px; }
+.line .suggestion button { color: var(--acc); font-size: 12px; font-weight: 700; text-decoration: underline; padding: 4px 6px; }
+@media (max-width: 480px) {
+  .song-builder .seg button { min-height: 42px; padding: 0 9px; font-size: 13px; }
+}
