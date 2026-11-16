@@ -264,6 +264,119 @@
     return slogov(l.syl);
   }
 
-  root.Lyrics = { BASE, generate, syllables, lastWord, rhymeQuality, lineHint, slogov, FRAMES, ANCHORS, REFRAINS, PAIRS, TURNS };
+
+  // ---------- Конструктор песни ----------
+  // Идеи строк подобраны офлайн; приложение предлагает только варианты с точным числом слогов.
+  const SONG_LINES = {
+    love: [
+      'мы прячем нежность между строк', 'я помню запах твоих слов', 'твой свет хранится на руках',
+      'твой голос тонет в тишине', 'мы снова учимся любить', 'твои ладони помнят мой покой',
+      'пусть этот вечер длится вечно', 'я нахожу тебя во снах', 'и сердце выбрало тебя',
+    ],
+    sad: [
+      'и ночь опять длинней меня', 'я не умею ждать весну', 'на окнах тает серый лёд',
+      'в пустой квартире гаснет свет', 'под кожей медленно зима', 'мой голос тонет в тишине',
+      'я прячу боль среди людей', 'и память держит нас вдвоём', 'я отпускаю этот день',
+    ],
+    day: [
+      'сегодня всё начнётся вновь', 'рассвет стучится в моё окно', 'и город просыпается со мной',
+      'с утра я выйду за мечтой', 'я открываю новый день', 'пусть ветер выдует печаль',
+      'сегодня я начну с нуля', 'мой путь становится ясней', 'и солнце ближе с каждым шагом',
+    ],
+    strength: [
+      'я сам решаю, где мой край', 'мне больше нечего скрывать', 'я поднимаюсь выше крыш',
+      'мой страх остался позади', 'я выбираю свой маршрут', 'и каждый шрам хранит ответ',
+      'я не сверну с своей дороги', 'мой голос громче тишины', 'я стал сильнее, чем вчера',
+    ],
+    city: [
+      'метро уносит наши сны', 'фонари качают тишину', 'мой город помнит каждый шаг',
+      'ночной проспект не гасит свет', 'мы растворяемся в толпе', 'и крыши смотрят в небеса',
+      'витрины ловят отраженья', 'гудки плывут издалека', 'мы ищем выход до утра',
+    ],
+    general: [
+      'я собираю этот день', 'и ветер знает мой маршрут', 'мы оставляем свет внутри',
+      'я слышу город за спиной', 'дорога помнит каждый шаг', 'мой голос режет тишину',
+      'я снова выбираю путь', 'всё начинается с нуля', 'и завтра станет чуть ясней',
+    ],
+  };
+
+  const TOPIC_IDEAS = {
+    love: ['встреча и близость', 'голос любимого человека', 'память о совместном вечере', 'страх потерять друг друга'],
+    sad: ['пустая комната', 'долгое расставание', 'ночь после трудного дня', 'попытка отпустить прошлое'],
+    day: ['первый шаг с утра', 'новое начало', 'город после рассвета', 'надежда на перемены'],
+    strength: ['свой выбор', 'победа над страхом', 'движение к цели', 'голос, который больше не прячется'],
+    city: ['ночной город', 'дорога домой', 'огни и шум улиц', 'люди в большом городе'],
+    general: ['важное воспоминание', 'внутренний выбор', 'дорога вперёд', 'то, что давно хотелось сказать'],
+  };
+
+  function topicKey(topic) {
+    const x = String(topic || '').toLowerCase();
+    if (/люб|любов|сердц|встреч|нежн|роман|отношен/.test(x)) return 'love';
+    if (/груст|печал|тос|одиноч|потер|расстав|разлук|боль|слёз|памят/.test(x)) return 'sad';
+    if (/нов|день|утр|рассвет|начал|завтр|надежд|солнц/.test(x)) return 'day';
+    if (/сил|побед|цель|смел|свобод|борь|путь|мечт/.test(x)) return 'strength';
+    if (/город|улиц|ноч|район|метро|дорог|дом/.test(x)) return 'city';
+    return x ? 'general' : 'general';
+  }
+
+  function songSection(title, count, meter, key, style, hook, reserveHook) {
+    const candidates = shuffle(SONG_LINES[key].filter((line) => syllables(line) === meter));
+    const seen = new Set();
+    const lines = [];
+    for (let i = 0; i < count; i++) {
+      const isHookLine = reserveHook && hook && i === count - 1;
+      if (isHookLine) {
+        lines.push({ fixed: hook });
+        continue;
+      }
+      let rhyme = 0;
+      if (style === 'rap') rhyme = i % 2 === 1 ? i : 0; // парная рифмовка
+      else rhyme = i >= 2 ? i - 1 : 0; // перекрёстная рифмовка
+      const options = candidates.filter((line) => !seen.has(line));
+      const suggestion = options.length ? rnd(options) : '';
+      if (suggestion) seen.add(suggestion);
+      const idea = rnd(TOPIC_IDEAS[key]);
+      lines.push(Object.assign({ syl: meter, idea }, rhyme ? { rhyme } : {}, suggestion ? { suggestion } : {}));
+    }
+    return { title, lines };
+  }
+
+  function generateSong(options) {
+    options = options || {};
+    const structure = options.structure === 'free' ? 'free' : 'chorus';
+    const style = options.style === 'song' ? 'song' : 'rap';
+    const meter = Math.max(8, Math.min(10, Number(options.syl) || 9));
+    const topic = String(options.topic || '').trim();
+    const key = topicKey(topic);
+    const hook = String(options.hook || '').trim();
+    const name = topic || (key === 'general' ? 'Новая песня' : TOPIC_IDEAS[key][0]);
+    let sections;
+    if (structure === 'free') {
+      const count = Math.max(8, Math.min(16, Number(options.lines) || 12));
+      sections = [songSection('Сплошной текст', count, meter, key, style, hook, true)];
+    } else {
+      sections = [];
+      for (let verse = 1; verse <= 3; verse++) {
+        sections.push(songSection('Куплет ' + verse, 8, meter, key, style, '', false));
+        sections.push(songSection('Припев', 4, meter, key, style, hook, true));
+      }
+    }
+    if (topic) sections.forEach((section) => section.lines.forEach((line) => { if (line.idea) line.idea = 'Тема «' + topic + '»: ' + line.idea; }));\n    const styleName = style === 'rap' ? 'рэп' : 'песенная';
+    const formName = structure === 'free' ? sections[0].lines.length + ' строк' : '3 куплета + припев';
+    return {
+      id: 'song-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      name: 'Песня · ' + name,
+      about: (topic ? 'Тема: «' + topic + '». ' : '') + styleName + ' подача, строки по ' + meter + ' слогов, ' + formName +
+        (hook ? '. Своя фраза повторяется как рефрен.' : '. Идеи строк можно вставить одним нажатием.'),
+      sections,
+      generated: true,
+      topic,
+      hook,
+      style,
+      structure,
+    };
+  }
+
+  root.Lyrics = { BASE, generate, generateSong, syllables, lastWord, rhymeQuality, lineHint, slogov, FRAMES, ANCHORS, REFRAINS, PAIRS, TURNS };
   if (typeof module !== 'undefined') module.exports = root.Lyrics;
 })(typeof window !== 'undefined' ? window : globalThis);

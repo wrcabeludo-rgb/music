@@ -35,6 +35,7 @@
   // ---------- Главная ----------
 
   const gen = { kind: 'any', syl: 0, tpl: null };
+  const song = { structure: 'chorus', style: 'rap', syl: 9, lines: 12, topic: '', hook: '', tpl: null };
 
   function seg(id, onPick) {
     $(id).addEventListener('click', (e) => {
@@ -57,6 +58,7 @@
         else if (l.start) txt = '<span class="fx">' + esc(l.start) + '…</span>' + (l.syl ? ' (' + L.slogov(l.syl) + ')' : '');
         else txt = L.slogov(l.syl);
         if (l.rhyme) txt += ' <span class="rh">— рифма на ' + l.rhyme + '</span>';
+        if (l.suggestion) txt += '<span class="sample">Вариант: ' + esc(l.suggestion) + '</span>';
         h += '<li>' + txt + '</li>';
       }
       h += '</ol>';
@@ -67,6 +69,11 @@
   function regen() {
     gen.tpl = L.generate(gen.kind, gen.syl);
     $('genPreview').innerHTML = previewHTML(gen.tpl);
+  }
+
+  function regenSong() {
+    song.tpl = L.generateSong(song);
+    $('songPreview').innerHTML = previewHTML(song.tpl);
   }
 
   function renderHome() {
@@ -90,6 +97,19 @@
     const b = e.target.closest('[data-work]');
     if (b) openWork(works.find((w) => w.id === b.dataset.work));
   });
+
+  seg('songStructure', (v) => {
+    song.structure = v;
+    $('songLinesField').hidden = v !== 'free';
+    regenSong();
+  });
+  seg('songStyle', (v) => { song.style = v; regenSong(); });
+  seg('songMeter', (v) => { song.syl = +v; regenSong(); });
+  seg('songLines', (v) => { song.lines = +v; regenSong(); });
+  $('songTopic').addEventListener('input', () => { song.topic = $('songTopic').value; regenSong(); });
+  $('songHook').addEventListener('input', () => { song.hook = $('songHook').value; regenSong(); });
+  $('songAgain').onclick = regenSong;
+  $('songWrite').onclick = () => { const t = song.tpl; regenSong(); openWork(newWork(t)); };
 
   seg('genKind', (v) => {
     gen.kind = v;
@@ -163,7 +183,9 @@
         else h += '<input data-s="' + si + '" data-l="' + li + '" value="' + esc(w.text[si][li] || '') + '" placeholder="' +
           esc(l.frame || (l.start ? l.start + '…' : L.slogov(l.syl))) + '" autocomplete="off" autocapitalize="none" spellcheck="true" enterkeyhint="next">';
         h += '<span class="cnt" id="cn' + id + '"></span>';
+        if (l.suggestion) h += '<div class="suggestion">Вариант: «' + esc(l.suggestion) + '» <button type="button" data-use-suggestion data-s="' + si + '" data-l="' + li + '">Вставить</button></div>';
         h += '<div class="hintline"><span>' + esc(L.lineHint(l)) + (l.frame ? ': ' + esc(l.frame) : '') + '</span>' +
+          (l.idea ? '<span>Идея: ' + esc(l.idea) + '</span>' : '') +
           (back[li] ? '<span>← рифма со стр. ' + back[li].join(', ') + '</span>' : '') +
           '<span id="rh' + id + '"></span><span id="st' + id + '" class="bad"></span></div></div>';
       });
@@ -201,6 +223,16 @@
     const p = progress(cur);
     $('progress').textContent = 'Написано строк: ' + p.filled + ' из ' + p.total + (p.sized ? ' · точно по слогам: ' + p.exact + ' из ' + p.sized : '');
   }
+
+  $('sheet').addEventListener('click', (e) => {
+    const button = e.target.closest('[data-use-suggestion]');
+    if (!button) return;
+    const input = $('sheet').querySelector('input[data-s="' + button.dataset.s + '"][data-l="' + button.dataset.l + '"]');
+    if (!input) return;
+    input.value = cur.tpl.sections[+button.dataset.s].lines[+button.dataset.l].suggestion;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.focus();
+  });
 
   $('sheet').addEventListener('input', (e) => {
     const inp = e.target;
@@ -294,5 +326,6 @@
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
   regen();
+  regenSong();
   renderHome();
 })();

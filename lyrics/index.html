@@ -25,6 +25,49 @@
   </header>
   <p class="lead">Возьми шаблон — сколько слогов в строке, с каких слов начинать, что с чем рифмовать — и напиши по нему текст. Слоги и рифмы проверяются на ходу.</p>
 
+  <section class="panel song-builder">
+    <h3>Новая песня</h3>
+    <p class="muted">Выбери форму и тему — приложение подберёт идеи строк с нужным числом слогов.</p>
+    <div class="field"><span class="lbl">Структура</span>
+      <div class="seg" id="songStructure" role="radiogroup">
+        <button role="radio" data-v="chorus" aria-checked="true">3 куплета + припев</button>
+        <button role="radio" data-v="free">Сплошной текст</button>
+      </div>
+    </div>
+    <div class="field"><span class="lbl">Подача</span>
+      <div class="seg" id="songStyle" role="radiogroup">
+        <button role="radio" data-v="rap" aria-checked="true">Рэп</button>
+        <button role="radio" data-v="song">Песенная</button>
+      </div>
+    </div>
+    <div class="field"><span class="lbl">Слогов в строке</span>
+      <div class="seg" id="songMeter" role="radiogroup">
+        <button role="radio" data-v="8">8</button>
+        <button role="radio" data-v="9" aria-checked="true">9</button>
+        <button role="radio" data-v="10">10</button>
+      </div>
+    </div>
+    <div class="field" id="songLinesField"><span class="lbl">Размер текста</span>
+      <div class="seg" id="songLines" role="radiogroup">
+        <button role="radio" data-v="8">8 строк</button>
+        <button role="radio" data-v="12" aria-checked="true">12 строк</button>
+        <button role="radio" data-v="16">16 строк</button>
+      </div>
+    </div>
+    <label class="text-field">Тема песни
+      <input id="songTopic" type="text" maxlength="80" placeholder="Например: любовь, грусть, новый день">
+    </label>
+    <label class="text-field">Своя фраза — центр песни
+      <input id="songHook" type="text" maxlength="100" placeholder="Например: я всё равно найду дорогу">
+    </label>
+    <p class="hint small">Своя фраза станет рефреном в каждом припеве. В сплошном тексте она появится в финале.</p>
+    <div id="songPreview" class="preview"></div>
+    <div class="row">
+      <button id="songAgain" class="ghost">Другой вариант</button>
+      <button id="songWrite" class="primary small">Начать писать</button>
+    </div>
+  </section>
+
   <section class="panel">
     <h3>Новый шаблон</h3>
     <div class="field"><span class="lbl">Вид</span>
