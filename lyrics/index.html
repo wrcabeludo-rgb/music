@@ -27,7 +27,7 @@
 
   <section class="panel song-builder">
     <h3>Новая песня</h3>
-    <p class="muted">Настрой форму, тему и ритм. Идеи строк подбираются офлайн.</p>
+    <p class="muted">Тема добавит короткую фразу в двух местах. Остальные строки напишешь сам.</p>
     <div class="song-settings">
       <div class="song-setting structure">
         <span class="lbl">Структура</span>
@@ -45,11 +45,17 @@
       </div>
       <div class="song-setting">
         <span class="lbl">Слогов в строке</span>
-        <div class="seg" id="songMeter" role="radiogroup" aria-label="Число слогов в строке">
-          <button type="button" role="radio" data-v="8">8</button>
-          <button type="button" role="radio" data-v="9" aria-checked="true">9</button>
-          <button type="button" role="radio" data-v="10">10</button>
-        </div>
+        <select id="songMeter" aria-label="Число слогов в строке">
+          <option value="2">2 слога</option>
+          <option value="3">3 слога</option>
+          <option value="4">4 слога</option>
+          <option value="5">5 слогов</option>
+          <option value="6">6 слогов</option>
+          <option value="7">7 слогов</option>
+          <option value="8">8 слогов</option>
+          <option value="9" selected>9 слогов</option>
+          <option value="10">10 слогов</option>
+        </select>
       </div>
       <div class="song-setting" id="songLinesField" hidden>
         <span class="lbl">Размер текста</span>
@@ -66,10 +72,9 @@
     <label class="text-field"><span>Своя фраза</span>
       <input id="songHook" type="text" maxlength="100" placeholder="Фраза, вокруг которой строится песня" autocomplete="off">
     </label>
-    <p class="hint small">Фраза повторится в припеве или завершит сплошной текст.</p>
+    <p class="hint small">Фраза по теме начнёт две строки. Своя фраза повторится в припеве или в конце текста.</p>
     <div id="songPreview" class="preview"></div>
     <div class="row">
-      <button type="button" id="songAgain" class="ghost">Другие идеи</button>
       <button type="button" id="songWrite" class="primary small">Начать писать</button>
     </div>
   </section>
