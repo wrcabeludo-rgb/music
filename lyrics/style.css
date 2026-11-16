@@ -105,14 +105,26 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--acc); outli
   .field .lbl { width: 100%; }
 }
 
-.song-builder .text-field { display: grid; gap: 6px; margin-top: 12px; color: var(--muted); font-size: 14px; font-weight: 650; }
-.song-builder .text-field input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1.5px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--text); }
-.song-builder .seg { max-width: 100%; }
-.song-builder .seg button { flex: 1; }
-.preview .sample { display: block; color: var(--muted); font-size: 13px; margin-top: 2px; }
-.song-builder .preview { max-height: 300px; overflow: auto; }
+.song-builder h3 { margin: 0 0 4px; font-size: 18px; }
+.song-builder > .muted { margin: 0 0 10px; }
+.song-settings { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.song-setting { min-width: 0; padding: 9px; border-radius: 12px; background: var(--bg); }
+.song-setting.structure { grid-column: 1 / -1; }
+.song-setting .lbl { display: block; width: auto; margin: 0 0 6px; color: var(--muted); font-size: 12px; font-weight: 700; }
+.song-setting .seg { display: flex; width: 100%; min-width: 0; border-radius: 10px; }
+.song-setting .seg button { flex: 1 1 0; min-width: 0; min-height: 38px; padding: 0 6px; font-size: 13px; white-space: nowrap; }
+.song-setting.structure .seg button { white-space: normal; line-height: 1.15; }
+.song-builder .text-field { display: block; margin-top: 9px; color: var(--muted); font-size: 13px; font-weight: 700; }
+.song-builder .text-field input { display: block; width: 100%; min-height: 42px; margin-top: 5px; padding: 9px 11px; border: 1.5px solid var(--line); border-radius: 11px; background: var(--bg); color: var(--text); }
+.song-builder .hint.small { margin: 7px 1px 0; }
+.song-builder .preview { margin-top: 10px; max-height: none; padding: 10px 12px; }
+.song-builder .preview-example { margin-top: 8px; font-size: 13px; }
+.song-builder .preview-example ol { margin: 3px 0 0; padding-left: 22px; }
+.song-builder .preview-count { margin-top: 5px; color: var(--muted); font-size: 12px; }
+.song-builder .row { gap: 8px; margin-top: 10px; }
+.song-builder .row > * { min-height: 44px; }
 .line .suggestion { grid-column: 2 / 4; color: var(--muted); font-size: 13px; line-height: 1.4; padding: 2px 0 4px; }
 .line .suggestion button { color: var(--acc); font-size: 12px; font-weight: 700; text-decoration: underline; padding: 4px 6px; }
-@media (max-width: 480px) {
-  .song-builder .seg button { min-height: 42px; padding: 0 9px; font-size: 13px; }
+@media (max-width: 360px) {
+  .song-setting .seg button { padding: 0 4px; font-size: 12px; }
 }

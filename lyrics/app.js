@@ -34,7 +34,6 @@
 
   // ---------- Главная ----------
 
-  const gen = { kind: 'any', syl: 0, tpl: null };
   const song = { structure: 'chorus', style: 'rap', syl: 9, lines: 12, topic: '', hook: '', tpl: null };
 
   function seg(id, onPick) {
@@ -48,27 +47,17 @@
 
   function previewHTML(t) {
     let h = '<b class="name">' + esc(t.name) + '</b><div class="about">' + esc(t.about || '') + '</div>';
-    for (const sec of t.sections) {
-      if (t.sections.length > 1) h += '<h4>' + esc(sec.title) + '</h4>';
-      h += '<ol>';
-      for (const l of sec.lines) {
-        let txt;
-        if (l.fixed) txt = '<span class="fx">' + esc(l.fixed) + '</span>';
-        else if (l.frame) txt = '<span class="fx">' + esc(l.frame) + '</span>';
-        else if (l.start) txt = '<span class="fx">' + esc(l.start) + '…</span>' + (l.syl ? ' (' + L.slogov(l.syl) + ')' : '');
-        else txt = L.slogov(l.syl);
-        if (l.rhyme) txt += ' <span class="rh">— рифма на ' + l.rhyme + '</span>';
-        if (l.suggestion) txt += '<span class="sample">Вариант: ' + esc(l.suggestion) + '</span>';
-        h += '<li>' + txt + '</li>';
-      }
-      h += '</ol>';
-    }
+    const first = t.sections[0];
+    if (!first) return h;
+    h += '<div class="preview-example"><b>Пример строк</b><ol>';
+    first.lines.slice(0, 4).forEach((l) => {
+      let line = l.fixed ? esc(l.fixed) : l.suggestion ? esc(l.suggestion) : esc(L.lineHint(l));
+      h += '<li>' + line + (l.syl ? ' <span class="rh">· ' + L.slogov(l.syl) + '</span>' : '') + '</li>';
+    });
+    h += '</ol></div>';
+    const total = t.sections.reduce((n, sec) => n + sec.lines.length, 0);
+    h += '<div class="preview-count">Всего строк: ' + total + '</div>';
     return h;
-  }
-
-  function regen() {
-    gen.tpl = L.generate(gen.kind, gen.syl);
-    $('genPreview').innerHTML = previewHTML(gen.tpl);
   }
 
   function regenSong() {
@@ -111,14 +100,6 @@
   $('songAgain').onclick = regenSong;
   $('songWrite').onclick = () => { const t = song.tpl; regenSong(); openWork(newWork(t)); };
 
-  seg('genKind', (v) => {
-    gen.kind = v;
-    $('genSylField').hidden = v === 'frames';
-    regen();
-  });
-  seg('genSyl', (v) => { gen.syl = +v; regen(); });
-  $('genAgain').onclick = regen;
-  $('genWrite').onclick = () => { const t = gen.tpl; regen(); openWork(newWork(t)); };
 
   // ---------- Письмо ----------
 
@@ -325,7 +306,6 @@
   if (ios && !navigator.standalone) $('iosHint').hidden = false;
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
-  regen();
   regenSong();
   renderHome();
 })();
