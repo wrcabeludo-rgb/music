@@ -1,6 +1,6 @@
 // Офлайн-кэш «Тексты по шаблонам».
 // При изменении файлов приложения увеличивайте CACHE — старый кэш удалится автоматически.
-const CACHE = 'lyrics-v3';
+const CACHE = 'lyrics-v4';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'templates.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-180.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png'];
 
