@@ -128,3 +128,6 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--acc); outli
 @media (max-width: 360px) {
   .song-setting .seg button { padding: 0 4px; font-size: 12px; }
 }
+
+.song-setting select { display: block; width: 100%; min-height: 38px; padding: 0 10px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 700; }
+.song-setting select:focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }
