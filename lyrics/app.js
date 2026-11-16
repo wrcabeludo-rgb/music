@@ -93,12 +93,11 @@
     regenSong();
   });
   seg('songStyle', (v) => { song.style = v; regenSong(); });
-  seg('songMeter', (v) => { song.syl = +v; regenSong(); });
+  $('songMeter').addEventListener('change', () => { song.syl = +$('songMeter').value; regenSong(); });
   seg('songLines', (v) => { song.lines = +v; regenSong(); });
   $('songTopic').addEventListener('input', () => { song.topic = $('songTopic').value; regenSong(); });
   $('songHook').addEventListener('input', () => { song.hook = $('songHook').value; regenSong(); });
-  $('songAgain').onclick = regenSong;
-  $('songWrite').onclick = () => { const t = song.tpl; regenSong(); openWork(newWork(t)); };
+  $('songWrite').onclick = () => { openWork(newWork(song.tpl || L.generateSong(song))); };
 
 
   // ---------- Письмо ----------
