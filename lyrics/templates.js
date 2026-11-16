@@ -361,7 +361,8 @@
         sections.push(songSection('Припев', 4, meter, key, style, hook, true));
       }
     }
-    if (topic) sections.forEach((section) => section.lines.forEach((line) => { if (line.idea) line.idea = 'Тема «' + topic + '»: ' + line.idea; }));\n    const styleName = style === 'rap' ? 'рэп' : 'песенная';
+    if (topic) sections.forEach((section) => section.lines.forEach((line) => { if (line.idea) line.idea = 'Тема «' + topic + '»: ' + line.idea; }));
+    const styleName = style === 'rap' ? 'рэп' : 'песенная';
     const formName = structure === 'free' ? sections[0].lines.length + ' строк' : '3 куплета + припев';
     return {
       id: 'song-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
