@@ -7,8 +7,25 @@
 
   // ---------- Хранилище ----------
 
+  function hasUserContent(w) {
+    if (!w || !w.tpl || !Array.isArray(w.tpl.sections)) return false;
+    if (String(w.title || '').trim()) return true;
+    return w.tpl.sections.some((sec, si) => sec.lines && sec.lines.some((line, li) => {
+      if (line.fixed) return false;
+      const value = String((w.text && w.text[si] && w.text[si][li]) || '').trim();
+      return value && !(line.start && value.toLowerCase() === line.start.trim().toLowerCase());
+    }));
+  }
+
   function loadWorks() {
-    try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch (e) { return []; }
+    let saved = [];
+    try {
+      const parsed = JSON.parse(localStorage.getItem(KEY)) || [];
+      saved = Array.isArray(parsed) ? parsed : [];
+    } catch (e) {}
+    const kept = saved.filter(hasUserContent);
+    if (kept.length !== saved.length) saveWorks(kept);
+    return kept;
   }
   function saveWorks(list) {
     try { localStorage.setItem(KEY, JSON.stringify(list)); } catch (e) { toast('Не получилось сохранить'); }
@@ -19,17 +36,22 @@
   function newWork(tpl) {
     const t = JSON.parse(JSON.stringify(tpl));
     const text = t.sections.map((sec) => sec.lines.map((l) => (l.start ? l.start + ' ' : '')));
-    const w = { id: 'w' + Date.now().toString(36), title: '', tpl: t, text, updated: Date.now() };
-    works.unshift(w);
-    saveWorks(works);
-    return w;
+    return { id: 'w' + Date.now().toString(36), title: '', tpl: t, text, updated: Date.now() };
   }
 
   let saveTimer = 0;
   function touch() {
-    cur.updated = Date.now();
+    if (!cur) return;
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => saveWorks(works), 300);
+    const exists = works.some((w) => w.id === cur.id);
+    if (hasUserContent(cur)) {
+      cur.updated = Date.now();
+      if (!exists) works.unshift(cur);
+      saveTimer = setTimeout(() => saveWorks(works), 300);
+    } else if (exists) {
+      works = works.filter((w) => w.id !== cur.id);
+      saveTimer = setTimeout(() => saveWorks(works), 300);
+    }
   }
 
   // ---------- Главная ----------
@@ -72,8 +94,11 @@
     $('worksList').innerHTML = works.map((w) => {
       const p = progress(w);
       const date = new Date(w.updated).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
-      return '<button class="item" data-work="' + w.id + '"><span><b>' + esc(w.title || w.tpl.name) + '</b><small>' +
-        (w.title ? esc(w.tpl.name) + ' · ' : '') + p.filled + ' из ' + p.total + ' строк · ' + date + '</small></span><i class="go">›</i></button>';
+      return '<div class="item work-item"><button type="button" class="work-open" data-work="' + esc(w.id) + '"><span><b>' +
+        esc(w.title || w.tpl.name) + '</b><small>' + (w.title ? esc(w.tpl.name) + ' · ' : '') +
+        p.filled + ' из ' + p.total + ' строк · ' + date + '</small></span><i class="go">›</i></button>' +
+        '<button type="button" class="work-remove" data-delete-work="' + esc(w.id) + '" aria-label="Удалить текст «' +
+        esc(w.title || w.tpl.name) + '">×</button></div>';
     }).join('');
     $('worksEmpty').hidden = works.length > 0;
   }
@@ -83,8 +108,17 @@
     if (b) openWork(newWork(L.BASE.find((t) => t.id === b.dataset.base)));
   });
   $('worksList').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-work]');
-    if (b) openWork(works.find((w) => w.id === b.dataset.work));
+    const remove = e.target.closest('[data-delete-work]');
+    if (remove) {
+      const work = works.find((w) => w.id === remove.dataset.deleteWork);
+      if (!work || !confirm('Удалить «' + (work.title || work.tpl.name) + '»?')) return;
+      works = works.filter((w) => w.id !== work.id);
+      saveWorks(works);
+      renderHome();
+      return;
+    }
+    const open = e.target.closest('[data-work]');
+    if (open) openWork(works.find((w) => w.id === open.dataset.work));
   });
 
   seg('songStructure', (v) => {
@@ -170,6 +204,13 @@
           '<span id="rh' + id + '"></span><span id="st' + id + '" class="bad"></span></div></div>';
       });
     });
+    if (w.tpl.structure === 'chorus') {
+      const verseCount = w.tpl.sections.filter((sec) => /^Куплет(?: \d+)?$/.test(sec.title)).length;
+      if (verseCount < 3) {
+        h += '<div class="add-verse-control"><button type="button" class="ghost" data-add-verse>+ Добавить куплет и припев</button>' +
+          '<span class="muted">' + verseCount + ' из 3 куплетов</span></div>';
+      } else h += '<p class="add-verse-limit muted">Добавлено 3 куплета</p>';
+    }
     $('sheet').innerHTML = h;
     w.tpl.sections.forEach((sec, si) => sec.lines.forEach((l, li) => updateLine(si, li)));
     updateProgress();
@@ -205,6 +246,16 @@
   }
 
   $('sheet').addEventListener('click', (e) => {
+    const addVerse = e.target.closest('[data-add-verse]');
+    if (addVerse) {
+      const added = L.appendSongVerse(cur.tpl);
+      if (!added) return;
+      added.forEach((section) => {
+        cur.text.push(section.lines.map((line) => (line.start ? line.start + ' ' : '')));
+      });
+      renderSheet();
+      return;
+    }
     const button = e.target.closest('[data-use-suggestion]');
     if (!button) return;
     const input = $('sheet').querySelector('input[data-s="' + button.dataset.s + '"][data-l="' + button.dataset.l + '"]');
