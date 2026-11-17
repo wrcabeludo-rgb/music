@@ -207,7 +207,7 @@
     if (w.tpl.structure === 'chorus') {
       const verseCount = w.tpl.sections.filter((sec) => /^Куплет(?: \d+)?$/.test(sec.title)).length;
       if (verseCount < 3) {
-        h += '<div class="add-verse-control"><button type="button" class="ghost" data-add-verse>+ Добавить куплет и припев</button>' +
+        h += '<div class="add-verse-control"><button type="button" class="ghost" data-add-verse>+ Добавить куплет</button>' +
           '<span class="muted">' + verseCount + ' из 3 куплетов</span></div>';
       } else h += '<p class="add-verse-limit muted">Добавлено 3 куплета</p>';
     }
@@ -248,12 +248,18 @@
   $('sheet').addEventListener('click', (e) => {
     const addVerse = e.target.closest('[data-add-verse]');
     if (addVerse) {
-      const added = L.appendSongVerse(cur.tpl);
+      let chorusIndex = -1;
+      for (let i = cur.tpl.sections.length - 1; i >= 0; i--) {
+        if (cur.tpl.sections[i].title === 'Припев') { chorusIndex = i; break; }
+      }
+      const copiedChorus = chorusIndex >= 0 ? cur.tpl.sections[chorusIndex] : null;
+      const copiedChorusText = chorusIndex >= 0 && cur.text[chorusIndex] ? cur.text[chorusIndex].slice() : null;
+      const added = L.appendSongVerse(cur.tpl, copiedChorus);
       if (!added) return;
-      added.forEach((section) => {
-        cur.text.push(section.lines.map((line) => (line.start ? line.start + ' ' : '')));
-      });
+      cur.text.push(added[0].lines.map((line) => (line.start ? line.start + ' ' : '')));
+      cur.text.push(copiedChorusText || added[1].lines.map((line) => (line.start ? line.start + ' ' : '')));
       renderSheet();
+      touch();
       return;
     }
     const button = e.target.closest('[data-use-suggestion]');
