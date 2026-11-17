@@ -266,15 +266,16 @@
 
 
   // ---------- Конструктор песни ----------
-  // Фраза по теме становится парным началом 1-й и 3-й строк куплета.
+  // Тема становится парным мотивом в 1-й и 3-й строках куплета.
+  // При коротких строках повторяется один зачин; при длинных — два связанных.
   // Своя фраза задаёт поворот куплета и завершает припев.
   const THEME_STARTS = {
-    love: ['ты рядом', 'между нами', 'свет любви', 'ты'],
-    sad: ['и ночь', 'без тебя', 'пусто внутри', 'нет'],
-    day: ['новый день', 'первый свет', 'с утра', 'день'],
-    strength: ['я смогу', 'мой путь', 'без страха', 'я'],
-    city: ['мой город', 'до утра', 'ночь', 'дом'],
-    general: ['внутри меня', 'мой путь', 'этот день', 'я'],
+    love: ['ты', 'ты рядом', 'между нами', 'свет любви'],
+    sad: ['нет', 'и ночь', 'без тебя', 'пусто внутри'],
+    day: ['день', 'новый день', 'первый свет', 'с утра'],
+    strength: ['я', 'мой путь', 'я смогу', 'без страха'],
+    city: ['ночь', 'мой город', 'до утра', 'в пути'],
+    general: ['я', 'я помню', 'внутри меня', 'этот день'],
   };
 
   function topicKey(topic) {
@@ -287,22 +288,18 @@
     return 'general';
   }
 
-  function chooseThemeStart(topic, key, meter) {
-    if (!topic) return '';
-    const words = topic.replace(/\s+/g, ' ').trim().split(' ');
+  function chooseThemePhrases(topic, key, meter) {
+    if (!topic) return [];
+    const raw = topic.replace(/\s+/g, ' ').trim();
+    const bank = THEME_STARTS[key].filter((candidate) => syllables(candidate) < meter);
     const maxSyllables = Math.min(4, meter - 1);
-    let phrase = '';
-    for (let i = 1; i <= words.length; i++) {
-      const candidate = words.slice(0, i).join(' ');
-      if (syllables(candidate) > maxSyllables) break;
-      phrase = candidate;
-    }
-    const prepositions = new Set(['о', 'об', 'обо', 'про', 'в', 'во', 'на', 'к', 'ко', 'с', 'со', 'за', 'из', 'от', 'по', 'над', 'под']);
-    while (phrase && prepositions.has(phrase.split(' ').pop().toLowerCase())) {
-      phrase = phrase.split(' ').slice(0, -1).join(' ');
-    }
-    if (phrase) return phrase;
-    return THEME_STARTS[key].find((candidate) => syllables(candidate) < meter) || '';
+    const direct = syllables(raw) > 0 && syllables(raw) <= maxSyllables ? raw : '';
+    const first = direct || bank.find((candidate) => syllables(candidate) >= 2) || bank[0] || '';
+    if (!first) return [];
+    if (meter < 6) return [first];
+    const second = bank.find((candidate) => candidate.toLowerCase() !== first.toLowerCase() && syllables(candidate) >= 2)
+      || bank.find((candidate) => candidate.toLowerCase() !== first.toLowerCase());
+    return second ? [first, second] : [first];
   }
 
   function songSection(title, count, meter, style, hook, hookAtEnd, hookIndex) {
@@ -321,25 +318,27 @@
     return { title, lines };
   }
 
-  function themeAnchors(section, phrase) {
-    if (!phrase) return;
-    [0, 2].forEach((index) => {
-      if (section.lines[index]) section.lines[index].start = phrase;
-    });
+  function themeAnchors(section, phrases) {
+    if (!phrases || !phrases.length) return;
+    section.lines[0].start = phrases[0];
+    section.lines[2].start = phrases[1] || phrases[0];
   }
 
-  function songPair(verseNumber, meter, style, themeStart, hook) {
+  function songPair(verseNumber, meter, style, themePhrases, hook, copiedChorus) {
     const verse = songSection('Куплет ' + verseNumber, 8, meter, style, hook, false, 4);
-    themeAnchors(verse, themeStart);
-    const chorus = songSection('Припев', 4, meter, style, hook, true);
+    themeAnchors(verse, themePhrases);
+    const chorus = copiedChorus
+      ? { title: 'Припев', lines: copiedChorus.lines.map((line) => Object.assign({}, line)) }
+      : songSection('Припев', 4, meter, style, hook, true);
     return [verse, chorus];
   }
 
-  function appendSongVerse(tpl) {
+  function appendSongVerse(tpl, copiedChorus) {
     if (!tpl || tpl.structure !== 'chorus') return null;
     const verseCount = tpl.sections.filter((section) => /^Куплет(?: \d+)?$/.test(section.title)).length;
     if (verseCount >= 3) return null;
-    const pair = songPair(verseCount + 1, tpl.meter || 9, tpl.style || 'rap', tpl.themeStart || '', tpl.hook || '');
+    const themePhrases = tpl.themePhrases || (tpl.themeStart ? [tpl.themeStart] : []);
+    const pair = songPair(verseCount + 1, tpl.meter || 9, tpl.style || 'rap', themePhrases, tpl.hook || '', copiedChorus);
     tpl.sections.push(...pair);
     return pair;
   }
@@ -351,25 +350,24 @@
     const meter = Math.max(2, Math.min(10, Number(options.syl) || 9));
     const topic = String(options.topic || '').trim();
     const key = topicKey(topic);
-    const themeStart = chooseThemeStart(topic, key, meter);
+    const themePhrases = chooseThemePhrases(topic, key, meter);
     const hook = String(options.hook || '').trim();
     const name = topic || 'Новая песня';
     let sections;
     if (structure === 'free') {
       const count = Math.max(8, Math.min(16, Number(options.lines) || 12));
       const section = songSection('Сплошной текст', count, meter, style, hook, true);
-      themeAnchors(section, themeStart);
+      themeAnchors(section, themePhrases);
       sections = [section];
-    } else sections = songPair(1, meter, style, themeStart, hook);
+    } else sections = songPair(1, meter, style, themePhrases, hook);
     const styleName = style === 'rap' ? 'рэп' : 'песенная';
     const formName = structure === 'free' ? sections[0].lines.length + ' строк' : '1 куплет + припев';
     const notes = [];
-    if (themeStart) notes.push(structure === 'free' ?
-      'фраза «' + themeStart + '» начинает 1-ю и 3-ю строки текста' :
-      'фраза «' + themeStart + '» начинает 1-ю и 3-ю строки куплета');
+    if (themePhrases.length === 1) notes.push('зачин «' + themePhrases[0] + '» стоит в 1-й и 3-й строках');
+    else if (themePhrases.length > 1) notes.push('зачины «' + themePhrases[0] + '» и «' + themePhrases[1] + '» стоят в 1-й и 3-й строках');
     if (hook) notes.push(structure === 'free' ? 'своя фраза завершает текст' : 'своя фраза стоит в 5-й строке куплета и завершает припев');
     else notes.push('остальные строки остаются пустыми для твоего текста');
-    if (structure === 'chorus') notes.push('в редакторе можно добавить ещё два куплета с припевами');
+    if (structure === 'chorus') notes.push('в редакторе можно добавить ещё два куплета, припев скопируется сам');
     return {
       id: 'song-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       name: 'Песня · ' + name,
@@ -380,7 +378,7 @@
       structure,
       meter,
       topic,
-      themeStart,
+      themePhrases,
       hook,
       style,
     };
