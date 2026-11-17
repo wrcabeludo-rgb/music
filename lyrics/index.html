@@ -27,12 +27,12 @@
 
   <section class="panel song-builder">
     <h3>Новая песня</h3>
-    <p class="muted">Тема добавит короткую фразу в двух местах. Остальные строки напишешь сам.</p>
+    <p class="muted">Начни с куплета и припева. Остальные куплеты добавишь прямо в песне.</p>
     <div class="song-settings">
       <div class="song-setting structure">
         <span class="lbl">Структура</span>
         <div class="seg" id="songStructure" role="radiogroup" aria-label="Структура песни">
-          <button type="button" role="radio" data-v="chorus" aria-checked="true">3 куплета + припев</button>
+          <button type="button" role="radio" data-v="chorus" aria-checked="true">Куплет + припев</button>
           <button type="button" role="radio" data-v="free">Сплошной текст</button>
         </div>
       </div>
@@ -72,7 +72,7 @@
     <label class="text-field"><span>Своя фраза</span>
       <input id="songHook" type="text" maxlength="100" placeholder="Фраза, вокруг которой строится песня" autocomplete="off">
     </label>
-    <p class="hint small">Фраза по теме начнёт две строки. Своя фраза повторится в припеве или в конце текста.</p>
+    <p class="hint small">Фраза по теме начнёт 1-ю и 3-ю строки куплета. Своя фраза задаст поворот куплета и припев.</p>
     <div id="songPreview" class="preview"></div>
     <div class="row">
       <button type="button" id="songWrite" class="primary small">Начать писать</button>

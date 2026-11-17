@@ -131,3 +131,15 @@ button:focus-visible, input:focus-visible { outline: 3px solid var(--acc); outli
 
 .song-setting select { display: block; width: 100%; min-height: 38px; padding: 0 10px; border: 1.5px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; font-weight: 700; }
 .song-setting select:focus-visible { outline: 3px solid var(--acc); outline-offset: 2px; }
+
+.work-item { padding: 0 4px 0 0; gap: 0; }
+.work-item .work-open { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; width: 100%; min-height: 56px; padding: 10px 8px 10px 14px; background: transparent; text-align: left; }
+.work-item .work-open > span { flex: 1; min-width: 0; }
+.work-item .work-remove { flex: none; width: 40px; height: 40px; margin-right: 5px; border-radius: 10px; color: var(--muted); font-size: 22px; }
+.work-item .work-remove:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.add-verse-control { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; margin: 18px 0 8px; }
+.add-verse-control button { min-height: 44px; justify-self: stretch; }
+.add-verse-control .muted, .add-verse-limit { margin: 0; font-size: 12px; }
+@media (max-width: 380px) {
+  .add-verse-control { grid-template-columns: 1fr; gap: 4px; }
+}
