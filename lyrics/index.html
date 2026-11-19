@@ -57,6 +57,21 @@
           <option value="10">10 слогов</option>
         </select>
       </div>
+      <div class="song-setting">
+        <span class="lbl">Схема рифмовки</span>
+        <select id="songRhyme" aria-label="Схема рифмовки">
+          <option value="aabb" selected>Парная AABB</option>
+          <option value="abab">Перекрёстная ABAB</option>
+          <option value="abba">Охватная ABBA</option>
+          <option value="aaaa">Монорим AAAA</option>
+          <option value="free">Без схемы</option>
+        </select>
+      </div>
+      <div class="song-setting wide" id="songVowelsField">
+        <span class="lbl">Гласные по местам (только рэп)</span>
+        <input id="songVowels" type="text" maxlength="80" placeholder="3=И, 5=А" autocomplete="off">
+        <small id="songVowelsHint" class="field-help">Например: 3=И, 5=А. Гласные считаются по порядку.</small>
+      </div>
       <div class="song-setting" id="songLinesField" hidden>
         <span class="lbl">Размер текста</span>
         <div class="seg" id="songLines" role="radiogroup" aria-label="Размер текста">
@@ -73,14 +88,36 @@
       <input id="songHook" type="text" maxlength="100" placeholder="Фраза, вокруг которой строится песня" autocomplete="off">
     </label>
     <p class="hint small">2–5 слогов: один зачин в строках 1 и 3. 6–10: два связанных. Своя фраза — поворот куплета и припев.</p>
+    <div class="row random-row">
+      <button type="button" id="randomVariant" class="ghost small">Случайный вариант</button>
+      <span class="muted">Идея для письма на сегодня</span>
+    </div>
     <div id="songPreview" class="preview"></div>
     <div class="row">
       <button type="button" id="songWrite" class="primary small">Начать писать</button>
     </div>
   </section>
 
+  <section class="panel template-deck" id="templateDeck">
+    <h3>100 готовых шаблонов</h3>
+    <p class="muted">Заготовленные фразы уже стоят на своих местах — дописывай строки вокруг них.</p>
+    <div class="template-nav">
+      <div class="template-nav-label"><b id="templateNumber"></b><small id="templateMeta"></small></div>
+      <button type="button" id="templateOther" class="ghost small">Другой шаблон</button>
+    </div>
+    <div id="templatePreview" class="preview"></div>
+    <div class="template-vowels" id="templateVowelsField" hidden>
+      <label for="templateVowels">Гласные по местам</label>
+      <input id="templateVowels" type="text" maxlength="80" placeholder="3=И, 5=А" autocomplete="off">
+      <small id="templateVowelsHint" class="field-help">Например: 3=И, 5=А.</small>
+    </div>
+    <div class="row">
+      <button type="button" id="templateWrite" class="primary small">Писать по шаблону</button>
+    </div>
+  </section>
+
   <section class="panel">
-    <h3>Шаблоны</h3>
+    <h3>Классические шаблоны</h3>
     <div id="baseList" class="list"></div>
   </section>
 

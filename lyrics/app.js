@@ -56,7 +56,9 @@
 
   // ---------- Главная ----------
 
-  const song = { structure: 'chorus', style: 'rap', syl: 9, lines: 12, topic: '', hook: '', tpl: null };
+  const song = { structure: 'chorus', style: 'rap', syl: 9, lines: 12, topic: '', hook: '', rhymeScheme: 'aabb', vowels: '', tpl: null };
+  let templateIndex = 0;
+  let templateVowels = '';
 
   function seg(id, onPick) {
     $(id).addEventListener('click', (e) => {
@@ -82,9 +84,52 @@
     return h;
   }
 
+  function updateSongVowelHint() {
+    const parsed = L.parseVowelPattern(song.vowels, song.syl);
+    const hint = $('songVowelsHint');
+    if (parsed.error) {
+      hint.textContent = parsed.error;
+      hint.className = 'field-help field-error';
+    } else if (Object.keys(parsed.pattern).length) {
+      hint.textContent = 'Проверяются позиции: ' + L.formatVowelPattern(parsed.pattern);
+      hint.className = 'field-help';
+    } else {
+      hint.textContent = 'Например: 3=И, 5=А. Гласные считаются по порядку.';
+      hint.className = 'field-help';
+    }
+  }
+
+  function updateTemplateVowelHint() {
+    const tpl = L.templateAt(templateIndex);
+    const hint = $('templateVowelsHint');
+    if (tpl.templateType !== 'rap') return;
+    const parsed = L.parseVowelPattern(templateVowels, tpl.meter);
+    if (parsed.error) {
+      hint.textContent = parsed.error;
+      hint.className = 'field-help field-error';
+    } else if (Object.keys(parsed.pattern).length) {
+      hint.textContent = 'Проверяются позиции: ' + L.formatVowelPattern(parsed.pattern);
+      hint.className = 'field-help';
+    } else {
+      hint.textContent = 'Например: 3=И, 5=А.';
+      hint.className = 'field-help';
+    }
+  }
+
+  function renderTemplateDeck() {
+    const tpl = L.templateAt(templateIndex);
+    $('templateNumber').textContent = (templateIndex + 1) + ' из ' + L.TEMPLATE_COUNT;
+    $('templateMeta').textContent = (tpl.templateType === 'rap' ? 'Рэп' : 'Песенный') + ' · ' +
+      tpl.meter + ' слогов · ' + L.RHYME_SCHEMES[tpl.rhymeScheme].label;
+    $('templatePreview').innerHTML = previewHTML(tpl);
+    $('templateVowelsField').hidden = tpl.templateType !== 'rap';
+    updateTemplateVowelHint();
+  }
+
   function regenSong() {
     song.tpl = L.generateSong(song);
     $('songPreview').innerHTML = previewHTML(song.tpl);
+    updateSongVowelHint();
   }
 
   function renderHome() {
@@ -126,12 +171,76 @@
     $('songLinesField').hidden = v !== 'free';
     regenSong();
   });
-  seg('songStyle', (v) => { song.style = v; regenSong(); });
+  seg('songStyle', (v) => {
+    song.style = v;
+    song.rhymeScheme = v === 'rap' ? 'aabb' : 'abab';
+    $('songRhyme').value = song.rhymeScheme;
+    $('songVowelsField').hidden = v !== 'rap';
+    regenSong();
+  });
+  $('songRhyme').addEventListener('change', () => { song.rhymeScheme = $('songRhyme').value; regenSong(); });
+  $('songVowels').addEventListener('input', () => { song.vowels = $('songVowels').value; regenSong(); });
   $('songMeter').addEventListener('change', () => { song.syl = +$('songMeter').value; regenSong(); });
   seg('songLines', (v) => { song.lines = +v; regenSong(); });
   $('songTopic').addEventListener('input', () => { song.topic = $('songTopic').value; regenSong(); });
   $('songHook').addEventListener('input', () => { song.hook = $('songHook').value; regenSong(); });
-  $('songWrite').onclick = () => { openWork(newWork(song.tpl || L.generateSong(song))); };
+  function setSegmentValue(id, value) {
+    $(id).querySelectorAll('button').forEach((button) => {
+      button.setAttribute('aria-checked', String(button.dataset.v === String(value)));
+    });
+  }
+  function pickRandom(values) { return values[Math.floor(Math.random() * values.length)]; }
+  $('randomVariant').onclick = () => {
+    song.style = pickRandom(['rap', 'song']);
+    song.structure = Math.random() < 0.72 ? 'chorus' : 'free';
+    song.syl = song.style === 'rap' ? pickRandom([5, 6, 7, 8, 9, 10]) : pickRandom([2, 3, 4, 5, 6]);
+    song.lines = pickRandom([8, 12, 16]);
+    song.topic = pickRandom(['любовь', 'грусть', 'новый день', 'свобода', 'город ночью', 'мечта']);
+    song.rhymeScheme = pickRandom(['aabb', 'abab', 'abba', 'aaaa', 'free']);
+    song.vowels = '';
+    setSegmentValue('songStyle', song.style);
+    setSegmentValue('songStructure', song.structure);
+    setSegmentValue('songLines', song.lines);
+    $('songTopic').value = song.topic;
+    $('songMeter').value = String(song.syl);
+    $('songRhyme').value = song.rhymeScheme;
+    $('songVowels').value = '';
+    $('songVowelsField').hidden = song.style !== 'rap';
+    $('songLinesField').hidden = song.structure !== 'free';
+    regenSong();
+  };
+  $('songWrite').onclick = () => {
+    if (song.style === 'rap' && song.tpl.patternError) {
+      $('songVowelsHint').textContent = song.tpl.patternError;
+      $('songVowelsHint').className = 'field-help field-error';
+      return;
+    }
+    openWork(newWork(song.tpl || L.generateSong(song)));
+  };
+
+  $('templateOther').onclick = () => {
+    let next = templateIndex;
+    while (next === templateIndex) next = Math.floor(Math.random() * L.TEMPLATE_COUNT);
+    templateIndex = next;
+    renderTemplateDeck();
+  };
+  $('templateVowels').addEventListener('input', () => { templateVowels = $('templateVowels').value; updateTemplateVowelHint(); });
+  $('templateWrite').onclick = () => {
+    const tpl = L.templateAt(templateIndex);
+    if (tpl.templateType === 'rap') {
+      const parsed = L.parseVowelPattern(templateVowels, tpl.meter);
+      if (parsed.error) {
+        $('templateVowelsHint').textContent = parsed.error;
+        $('templateVowelsHint').className = 'field-help field-error';
+        return;
+      }
+      tpl.vowelPattern = parsed.pattern;
+      tpl.sections.forEach((section) => section.lines.forEach((line) => {
+        if (!line.fixed && Object.keys(parsed.pattern).length) line.vowelPattern = Object.assign({}, parsed.pattern);
+      }));
+    }
+    openWork(newWork(tpl));
+  };
 
 
   // ---------- Письмо ----------
@@ -146,11 +255,12 @@
     if (l.fixed) return true;
     const t = lineText(w, si, li).trim();
     if (!t || (l.start && t.toLowerCase() === l.start.toLowerCase())) return false;
-    return !l.syl || L.syllables(t) === l.syl;
+    const vowelsOk = L.checkVowelPattern(t, l.vowelPattern).ok;
+    return (!l.syl || L.syllables(t) === l.syl) && vowelsOk;
   }
 
   function progress(w) {
-    let total = 0, filled = 0, exact = 0, sized = 0;
+    let total = 0, filled = 0, exact = 0, sized = 0, vowelExact = 0, vowelTotal = 0;
     w.tpl.sections.forEach((sec, si) => sec.lines.forEach((l, li) => {
       if (l.fixed) return;
       total++;
@@ -158,8 +268,12 @@
       const written = t && !(l.start && t.toLowerCase() === l.start.toLowerCase());
       if (written) filled++;
       if (l.syl) { sized++; if (written && L.syllables(t) === l.syl) exact++; }
+      if (l.vowelPattern && Object.keys(l.vowelPattern).length) {
+        vowelTotal++;
+        if (written && L.checkVowelPattern(t, l.vowelPattern).ok) vowelExact++;
+      }
     }));
-    return { total, filled, exact, sized };
+    return { total, filled, exact, sized, vowelExact, vowelTotal };
   }
 
   function openWork(w) {
@@ -201,7 +315,7 @@
         h += '<div class="hintline"><span>' + esc(L.lineHint(l)) + (l.frame ? ': ' + esc(l.frame) : '') + '</span>' +
           (l.idea ? '<span>Идея: ' + esc(l.idea) + '</span>' : '') +
           (back[li] ? '<span>← рифма со стр. ' + back[li].join(', ') + '</span>' : '') +
-          '<span id="rh' + id + '"></span><span id="st' + id + '" class="bad"></span></div></div>';
+          '<span id="rh' + id + '"></span><span id="st' + id + '" class="bad"></span><span id="vp' + id + '" class="vowel-check"></span></div></div>';
       });
     });
     if (w.tpl.structure === 'chorus') {
@@ -227,6 +341,13 @@
     } else cnt.textContent = n ? String(n) : '';
     const st = $('st' + id);
     if (st) st.textContent = l.start && t.trim() && !t.trim().toLowerCase().startsWith(l.start.toLowerCase()) ? 'начни с «' + l.start + '»' : '';
+    const vowelStatus = $('vp' + id);
+    if (vowelStatus) {
+      const hasPattern = l.vowelPattern && Object.keys(l.vowelPattern).length;
+      const checked = L.checkVowelPattern(t, l.vowelPattern);
+      vowelStatus.textContent = hasPattern && t.trim() ? (checked.ok ? 'гласные на месте ✓' : checked.errors.join('; ')) : '';
+      vowelStatus.className = 'vowel-check ' + (hasPattern && t.trim() ? (checked.ok ? 'rh-ok' : 'field-error') : '');
+    }
     if (l.rhyme) {
       const other = lineText(w, si, l.rhyme - 1);
       const ow = L.lastWord(other);
@@ -242,7 +363,9 @@
 
   function updateProgress() {
     const p = progress(cur);
-    $('progress').textContent = 'Написано строк: ' + p.filled + ' из ' + p.total + (p.sized ? ' · точно по слогам: ' + p.exact + ' из ' + p.sized : '');
+    $('progress').textContent = 'Написано строк: ' + p.filled + ' из ' + p.total +
+      (p.sized ? ' · точно по слогам: ' + p.exact + ' из ' + p.sized : '') +
+      (p.vowelTotal ? ' · гласные на месте: ' + p.vowelExact + ' из ' + p.vowelTotal : '');
   }
 
   $('sheet').addEventListener('click', (e) => {
@@ -363,5 +486,6 @@
   if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
   regenSong();
+  renderTemplateDeck();
   renderHome();
 })();
