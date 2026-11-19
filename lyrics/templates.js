@@ -18,6 +18,46 @@
     return n;
   }
 
+  function vowelSequence(text) {
+    return [...String(text).toLowerCase()].filter((ch) => VOWELS.includes(ch));
+  }
+
+  function parseVowelPattern(value, maxPosition) {
+    const pattern = {};
+    const errors = [];
+    const parts = String(value || '').split(/[;,]+/).map((part) => part.trim()).filter(Boolean);
+    for (const part of parts) {
+      const match = part.match(/^(\d+)\s*[=:]\s*([аеёиоуыэюя])$/i);
+      if (!match) { errors.push('Укажи позицию и гласную, например 3=И'); continue; }
+      const position = Number(match[1]);
+      const vowel = match[2].toLowerCase();
+      if (position < 1 || position > Number(maxPosition)) {
+        errors.push('Позиция ' + position + ' выходит за пределы строки (' + maxPosition + ' слогов)');
+      } else if (pattern[position]) {
+        errors.push('Позиция ' + position + ' указана дважды');
+      } else pattern[position] = vowel;
+    }
+    return { pattern, error: errors.join('. ') };
+  }
+
+  function checkVowelPattern(text, pattern) {
+    const vowels = vowelSequence(text);
+    const errors = [];
+    Object.keys(pattern || {}).forEach((key) => {
+      const position = Number(key);
+      const expected = String(pattern[key]).toLowerCase();
+      const actual = vowels[position - 1];
+      if (!actual) errors.push(position + '-й слог: нет гласной');
+      else if (actual !== expected) errors.push(position + '-й слог: нужна ' + expected.toUpperCase() + ', сейчас ' + actual.toUpperCase());
+    });
+    return { ok: errors.length === 0, vowels, errors };
+  }
+
+  function formatVowelPattern(pattern) {
+    return Object.keys(pattern || {}).sort((a, b) => Number(a) - Number(b))
+      .map((position) => position + '=' + String(pattern[position]).toUpperCase()).join(', ');
+  }
+
   function lastWord(text) {
     const words = String(text).toLowerCase().match(/[a-zа-яё-]+/g);
     if (!words) return '';
@@ -265,10 +305,8 @@
   }
 
 
-  // ---------- Конструктор песни ----------
-  // Тема становится парным мотивом в 1-й и 3-й строках куплета.
-  // При коротких строках повторяется один зачин; при длинных — два связанных.
-  // Своя фраза задаёт поворот куплета и завершает припев.
+  // ---------- Конструктор песни и каталог шаблонов ----------
+  // Один или два тематических зачина занимают начало строк 1 и 3.
   const THEME_STARTS = {
     love: ['ты', 'ты рядом', 'между нами', 'свет любви'],
     sad: ['нет', 'и ночь', 'без тебя', 'пусто внутри'],
@@ -277,6 +315,40 @@
     city: ['ночь', 'мой город', 'до утра', 'в пути'],
     general: ['я', 'я помню', 'внутри меня', 'этот день'],
   };
+
+  const RHYME_SCHEMES = {
+    abab: { label: 'Перекрёстная ABAB', pattern: ['a', 'b', 'a', 'b'] },
+    aabb: { label: 'Парная AABB', pattern: ['a', 'a', 'b', 'b'] },
+    abba: { label: 'Охватная ABBA', pattern: ['a', 'b', 'b', 'a'] },
+    aaaa: { label: 'Монорим AAAA', pattern: ['a', 'a', 'a', 'a'] },
+    free: { label: 'Без схемы', pattern: null },
+  };
+
+  function defaultRhymeScheme(style) {
+    return style === 'rap' ? 'aabb' : 'abab';
+  }
+
+  function normalizeRhymeScheme(scheme, style) {
+    return RHYME_SCHEMES[scheme] ? scheme : defaultRhymeScheme(style);
+  }
+
+  function applyRhymeScheme(section, schemeName) {
+    const scheme = RHYME_SCHEMES[schemeName];
+    if (!scheme || !scheme.pattern) return;
+    const firstAt = {};
+    section.lines.forEach((line, index) => {
+      const key = Math.floor(index / 4) + ':' + scheme.pattern[index % 4];
+      if (Object.prototype.hasOwnProperty.call(firstAt, key)) line.rhyme = firstAt[key] + 1;
+      else firstAt[key] = index;
+    });
+  }
+
+  function addVowelPattern(sections, pattern) {
+    if (!pattern || !Object.keys(pattern).length) return;
+    sections.forEach((section) => section.lines.forEach((line) => {
+      if (!line.fixed) line.vowelPattern = Object.assign({}, pattern);
+    }));
+  }
 
   function topicKey(topic) {
     const x = String(topic || '').toLowerCase();
@@ -302,20 +374,16 @@
     return second ? [first, second] : [first];
   }
 
-  function songSection(title, count, meter, style, hook, hookAtEnd, hookIndex) {
+  function songSection(title, count, meter, style, hook, hookAtEnd, hookIndex, rhymeScheme) {
     const lines = [];
     for (let i = 0; i < count; i++) {
       const hookLine = hookAtEnd ? count - 1 : hookIndex;
-      if (hook && i === hookLine) {
-        lines.push({ fixed: hook });
-        continue;
-      }
-      let rhyme = 0;
-      if (style === 'rap') rhyme = i % 2 === 1 ? i : 0;
-      else rhyme = i >= 2 ? i - 1 : 0;
-      lines.push(Object.assign({ syl: meter }, rhyme ? { rhyme } : {}));
+      if (hook && i === hookLine) lines.push({ fixed: hook });
+      else lines.push({ syl: meter });
     }
-    return { title, lines };
+    const section = { title, lines };
+    applyRhymeScheme(section, rhymeScheme || defaultRhymeScheme(style));
+    return section;
   }
 
   function themeAnchors(section, phrases) {
@@ -324,12 +392,13 @@
     section.lines[2].start = phrases[1] || phrases[0];
   }
 
-  function songPair(verseNumber, meter, style, themePhrases, hook, copiedChorus) {
-    const verse = songSection('Куплет ' + verseNumber, 8, meter, style, hook, false, 4);
+  function songPair(verseNumber, meter, style, themePhrases, hook, copiedChorus, rhymeScheme, vowelPattern) {
+    const verse = songSection('Куплет ' + verseNumber, 8, meter, style, hook, false, 4, rhymeScheme);
     themeAnchors(verse, themePhrases);
     const chorus = copiedChorus
       ? { title: 'Припев', lines: copiedChorus.lines.map((line) => Object.assign({}, line)) }
-      : songSection('Припев', 4, meter, style, hook, true);
+      : songSection('Припев', 4, meter, style, hook, true, null, rhymeScheme);
+    addVowelPattern([verse, chorus], vowelPattern);
     return [verse, chorus];
   }
 
@@ -338,7 +407,8 @@
     const verseCount = tpl.sections.filter((section) => /^Куплет(?: \d+)?$/.test(section.title)).length;
     if (verseCount >= 3) return null;
     const themePhrases = tpl.themePhrases || (tpl.themeStart ? [tpl.themeStart] : []);
-    const pair = songPair(verseCount + 1, tpl.meter || 9, tpl.style || 'rap', themePhrases, tpl.hook || '', copiedChorus);
+    const pair = songPair(verseCount + 1, tpl.meter || 9, tpl.style || 'rap', themePhrases,
+      tpl.hook || '', copiedChorus, tpl.rhymeScheme || defaultRhymeScheme(tpl.style), tpl.vowelPattern || {});
     tpl.sections.push(...pair);
     return pair;
   }
@@ -352,14 +422,17 @@
     const key = topicKey(topic);
     const themePhrases = chooseThemePhrases(topic, key, meter);
     const hook = String(options.hook || '').trim();
+    const rhymeScheme = normalizeRhymeScheme(options.rhymeScheme, style);
+    const parsedVowels = parseVowelPattern(style === 'rap' ? options.vowels : '', meter);
     const name = topic || 'Новая песня';
     let sections;
     if (structure === 'free') {
       const count = Math.max(8, Math.min(16, Number(options.lines) || 12));
-      const section = songSection('Сплошной текст', count, meter, style, hook, true);
+      const section = songSection('Сплошной текст', count, meter, style, hook, true, null, rhymeScheme);
       themeAnchors(section, themePhrases);
       sections = [section];
-    } else sections = songPair(1, meter, style, themePhrases, hook);
+    } else sections = songPair(1, meter, style, themePhrases, hook, null, rhymeScheme, parsedVowels.pattern);
+    if (structure === 'free') addVowelPattern(sections, parsedVowels.pattern);
     const styleName = style === 'rap' ? 'рэп' : 'песенная';
     const formName = structure === 'free' ? sections[0].lines.length + ' строк' : '1 куплет + припев';
     const notes = [];
@@ -368,11 +441,15 @@
     if (hook) notes.push(structure === 'free' ? 'своя фраза завершает текст' : 'своя фраза стоит в 5-й строке куплета и завершает припев');
     else notes.push('остальные строки остаются пустыми для твоего текста');
     if (structure === 'chorus') notes.push('в редакторе можно добавить ещё два куплета, припев скопируется сам');
+    const vowelsNote = Object.keys(parsedVowels.pattern).length
+      ? 'гласные по позициям: ' + formatVowelPattern(parsedVowels.pattern)
+      : '';
+    const rhymeLabel = RHYME_SCHEMES[rhymeScheme].label;
     return {
       id: 'song-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       name: 'Песня · ' + name,
       about: (topic ? 'Тема: «' + topic + '». ' : '') + styleName + ' подача, строки по ' + meter + ' слогов, ' + formName +
-        '. ' + notes.join('. ') + '.',
+        '. Рифмовка: ' + rhymeLabel + '. ' + (vowelsNote ? vowelsNote + '. ' : '') + notes.join('. ') + '.',
       sections,
       generated: true,
       structure,
@@ -381,9 +458,104 @@
       themePhrases,
       hook,
       style,
+      rhymeScheme,
+      vowelPattern: parsedVowels.pattern,
+      patternError: parsedVowels.error,
     };
   }
 
-  root.Lyrics = { BASE, generate, generateSong, appendSongVerse, syllables, lastWord, rhymeQuality, lineHint, slogov, FRAMES, ANCHORS, REFRAINS, PAIRS, TURNS };
+  function makeRapCatalogTemplate(index) {
+    const meter = [5, 6, 7, 8, 9, 10][index % 6];
+    const pair = PAIRS[(index * 7) % PAIRS.length];
+    const scheme = ['aabb', 'abab', 'abba', 'aaaa'][index % 4];
+    const hasRefrain = index % 2 === 0;
+    const refrain = REFRAINS[(index * 11 + Math.floor(index / 2)) % REFRAINS.length];
+    const turnPool = TURNS.filter((turn) => syllables(turn) < meter);
+    const turn = turnPool.length ? turnPool[(index * 3) % turnPool.length] : '';
+    const verseLines = [
+      { start: pair[0], syl: meter }, s(meter), { start: pair[1], syl: meter }, s(meter),
+      hasRefrain ? { fixed: refrain } : { start: turn, syl: meter },
+      s(meter), s(meter), s(meter),
+    ];
+    const verse = { title: 'Куплет', lines: verseLines };
+    applyRhymeScheme(verse, scheme);
+    const sections = [verse];
+    if (hasRefrain) {
+      const chorus = { title: 'Припев', lines: [s(meter), s(meter), s(meter), { fixed: refrain }] };
+      applyRhymeScheme(chorus, scheme);
+      sections.push(chorus);
+    }
+    return {
+      id: 'catalog-' + String(index + 1).padStart(3, '0'),
+      name: 'Рэп · ' + cap(pair[0]) + ' / ' + pair[1] + ' · ' + meter + ' слогов',
+      about: 'Заготовленные начала стоят в 1-й и 3-й строках куплета. ' +
+        (hasRefrain ? 'Фраза-рефрен повторяется в 5-й строке и конце припева. ' : 'Пятая строка начинается с поворота. ') +
+        'Схема: ' + RHYME_SCHEMES[scheme].label + '.',
+      sections,
+      generated: true,
+      templateType: 'rap',
+      meter,
+      style: 'rap',
+      rhymeScheme: scheme,
+    };
+  }
+
+  function makeSongCatalogTemplate(index) {
+    const meter = [2, 3, 4, 5, 6][index % 5];
+    const scheme = ['abab', 'abba', 'aabb', 'aaaa'][Math.floor(index / 5) % 4];
+    const blockCount = index % 2 === 0 ? 2 : 4;
+    const pool = ANCHORS.filter((anchor) => syllables(anchor) > 0 && syllables(anchor) <= meter);
+    const turnPool = TURNS.filter((turn) => syllables(turn) < meter);
+    const lines = [];
+    for (let block = 0; block < blockCount; block++) {
+      const anchor = pool[(index * 7 + block * 11 + Math.floor(index / 5)) % pool.length];
+      lines.push(anchorLine(anchor, meter), s(meter), s(meter), s(meter));
+    }
+    const verse = { title: 'Куплет', lines };
+    applyRhymeScheme(verse, scheme);
+    const sections = [verse];
+    const addChorus = index % 3 === 0;
+    const refrain = REFRAINS[(index * 5 + 3) % REFRAINS.length];
+    if (addChorus) {
+      const turn = turnPool.length ? turnPool[index % turnPool.length] : (pool[0] || 'я');
+      const chorus = {
+        title: 'Припев',
+        lines: [s(meter), s(meter), { start: turn, syl: meter }, { fixed: refrain }],
+      };
+      applyRhymeScheme(chorus, scheme);
+      sections.push(chorus);
+    }
+    const first = verse.lines[0].fixed || verse.lines[0].start;
+    return {
+      id: 'catalog-' + String(index + 51).padStart(3, '0'),
+      name: 'Песенный · ' + cap(first || 'зачин') + ' · ' + meter + ' слогов',
+      about: 'Опорная фраза начинает каждую строфу; остальные строки допиши сам. ' +
+        (addChorus ? 'В припеве закреплён рефрен. ' : '') +
+        'Схема: ' + RHYME_SCHEMES[scheme].label + '.',
+      sections,
+      generated: true,
+      templateType: 'song',
+      meter,
+      style: 'song',
+      rhymeScheme: scheme,
+    };
+  }
+
+  function buildTemplateCatalog() {
+    const catalog = [];
+    for (let i = 0; i < 50; i++) catalog.push(makeRapCatalogTemplate(i));
+    for (let i = 0; i < 50; i++) catalog.push(makeSongCatalogTemplate(i));
+    return catalog;
+  }
+
+  const TEMPLATE_CATALOG = buildTemplateCatalog();
+  const TEMPLATE_COUNT = TEMPLATE_CATALOG.length;
+
+  function templateAt(index) {
+    const n = ((Number(index) || 0) % TEMPLATE_COUNT + TEMPLATE_COUNT) % TEMPLATE_COUNT;
+    return JSON.parse(JSON.stringify(TEMPLATE_CATALOG[n]));
+  }
+
+  root.Lyrics = { BASE, generate, generateSong, appendSongVerse, templateAt, TEMPLATE_COUNT, RHYME_SCHEMES, syllables, vowelSequence, parseVowelPattern, checkVowelPattern, formatVowelPattern, lastWord, rhymeQuality, lineHint, slogov, FRAMES, ANCHORS, REFRAINS, PAIRS, TURNS };
   if (typeof module !== 'undefined') module.exports = root.Lyrics;
 })(typeof window !== 'undefined' ? window : globalThis);
