@@ -56,7 +56,7 @@
 
   // ---------- Главная ----------
 
-  const song = { structure: 'chorus', style: 'rap', syl: 9, lines: 12, topic: '', hook: '', rhymeScheme: 'aabb', vowels: '', tpl: null };
+  const song = { structure: 'chorus', style: 'rap', syl: 9, lines: 12, topic: '', themeVariant: 0, hook: '', rhymeScheme: 'aabb', vowels: '', tpl: null };
   let templateIndex = 0;
   let templateVowels = '';
 
@@ -129,6 +129,12 @@
   function regenSong() {
     song.tpl = L.generateSong(song);
     $('songPreview').innerHTML = previewHTML(song.tpl);
+    const phrases = song.tpl.themePhrases || [];
+    $('themePhraseControl').hidden = !song.topic.trim();
+    $('themePhrasePreview').textContent = phrases.length
+      ? 'Опорные фразы: «' + phrases.join('», «') + '»'
+      : 'Для этой темы и размера нет коротких фраз.';
+    $('themePhraseNext').disabled = !phrases.length;
     updateSongVowelHint();
   }
 
@@ -182,7 +188,8 @@
   $('songVowels').addEventListener('input', () => { song.vowels = $('songVowels').value; regenSong(); });
   $('songMeter').addEventListener('change', () => { song.syl = +$('songMeter').value; regenSong(); });
   seg('songLines', (v) => { song.lines = +v; regenSong(); });
-  $('songTopic').addEventListener('input', () => { song.topic = $('songTopic').value; regenSong(); });
+  $('songTopic').addEventListener('input', () => { song.topic = $('songTopic').value; song.themeVariant = 0; regenSong(); });
+  $('themePhraseNext').onclick = () => { song.themeVariant += 1; regenSong(); };
   $('songHook').addEventListener('input', () => { song.hook = $('songHook').value; regenSong(); });
   function setSegmentValue(id, value) {
     $(id).querySelectorAll('button').forEach((button) => {
@@ -196,6 +203,7 @@
     song.syl = song.style === 'rap' ? pickRandom([5, 6, 7, 8, 9, 10]) : pickRandom([2, 3, 4, 5, 6]);
     song.lines = pickRandom([8, 12, 16]);
     song.topic = pickRandom(['любовь', 'грусть', 'новый день', 'свобода', 'город ночью', 'мечта']);
+    song.themeVariant = 0;
     song.rhymeScheme = pickRandom(['aabb', 'abab', 'abba', 'aaaa', 'free']);
     song.vowels = '';
     setSegmentValue('songStyle', song.style);
@@ -318,6 +326,15 @@
           '<span id="rh' + id + '"></span><span id="st' + id + '" class="bad"></span><span id="vp' + id + '" class="vowel-check"></span></div></div>';
       });
     });
+    const choruses = w.tpl.sections.filter((sec) => sec.title === 'Припев');
+    if (choruses.length) {
+      if (choruses.some((sec) => sec.lines.length === 4)) {
+        h += '<div class="add-verse-control chorus-control"><button type="button" class="ghost" data-double-chorus>Удлинить припев ×2</button>' +
+          '<span class="muted">4 → 8 строк</span></div>';
+      } else if (choruses.every((sec) => sec.lines.length >= 8)) {
+        h += '<p class="add-verse-limit muted">Припев удлинён ×2</p>';
+      }
+    }
     if (w.tpl.structure === 'chorus') {
       const verseCount = w.tpl.sections.filter((sec) => /^Куплет(?: \d+)?$/.test(sec.title)).length;
       if (verseCount < 3) {
@@ -369,6 +386,23 @@
   }
 
   $('sheet').addEventListener('click', (e) => {
+    const doubleChorus = e.target.closest('[data-double-chorus]');
+    if (doubleChorus) {
+      cur.tpl.sections.forEach((section, si) => {
+        if (section.title !== 'Припев' || section.lines.length !== 4) return;
+        const repeatedLines = section.lines.map((line) => {
+          const copy = Object.assign({}, line);
+          if (copy.rhyme) copy.rhyme += 4;
+          return copy;
+        });
+        const text = cur.text[si] || section.lines.map(() => '');
+        cur.tpl.sections[si].lines.push(...repeatedLines);
+        cur.text[si] = text.concat(text.slice(0, 4));
+      });
+      renderSheet();
+      touch();
+      return;
+    }
     const addVerse = e.target.closest('[data-add-verse]');
     if (addVerse) {
       let chorusIndex = -1;
