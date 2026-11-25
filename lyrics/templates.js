@@ -360,18 +360,33 @@
     return 'general';
   }
 
-  function chooseThemePhrases(topic, key, meter) {
+  function themePhraseOptions(topic, key, meter) {
     if (!topic) return [];
     const raw = topic.replace(/\s+/g, ' ').trim();
     const bank = THEME_STARTS[key].filter((candidate) => syllables(candidate) < meter);
     const maxSyllables = Math.min(4, meter - 1);
     const direct = syllables(raw) > 0 && syllables(raw) <= maxSyllables ? raw : '';
-    const first = direct || bank.find((candidate) => syllables(candidate) >= 2) || bank[0] || '';
-    if (!first) return [];
-    if (meter < 6) return [first];
-    const second = bank.find((candidate) => candidate.toLowerCase() !== first.toLowerCase() && syllables(candidate) >= 2)
-      || bank.find((candidate) => candidate.toLowerCase() !== first.toLowerCase());
-    return second ? [first, second] : [first];
+    const preferred = direct || bank.find((candidate) => syllables(candidate) >= 2) || bank[0] || '';
+    if (!preferred) return [];
+    const firsts = [...new Set([preferred, ...bank])];
+    if (meter < 6) return firsts.map((phrase) => [phrase]);
+
+    const options = [];
+    firsts.forEach((first) => {
+      let seconds = bank.filter((candidate) =>
+        candidate.toLowerCase() !== first.toLowerCase() && syllables(candidate) >= 2);
+      if (!seconds.length) seconds = bank.filter((candidate) => candidate.toLowerCase() !== first.toLowerCase());
+      if (seconds.length) seconds.forEach((second) => options.push([first, second]));
+      else options.push([first]);
+    });
+    return options;
+  }
+
+  function chooseThemePhrases(topic, key, meter, variant) {
+    const options = themePhraseOptions(topic, key, meter);
+    if (!options.length) return [];
+    const index = ((Number(variant) || 0) % options.length + options.length) % options.length;
+    return options[index];
   }
 
   function songSection(title, count, meter, style, hook, hookAtEnd, hookIndex, rhymeScheme) {
@@ -420,7 +435,8 @@
     const meter = Math.max(2, Math.min(10, Number(options.syl) || 9));
     const topic = String(options.topic || '').trim();
     const key = topicKey(topic);
-    const themePhrases = chooseThemePhrases(topic, key, meter);
+    const themeVariant = Number(options.themeVariant) || 0;
+    const themePhrases = chooseThemePhrases(topic, key, meter, themeVariant);
     const hook = String(options.hook || '').trim();
     const rhymeScheme = normalizeRhymeScheme(options.rhymeScheme, style);
     const parsedVowels = parseVowelPattern(style === 'rap' ? options.vowels : '', meter);
@@ -456,6 +472,7 @@
       meter,
       topic,
       themePhrases,
+      themeVariant,
       hook,
       style,
       rhymeScheme,
